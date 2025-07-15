@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>388</width>
-    <height>1265</height>
+    <height>1307</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -441,6 +441,13 @@
        <widget class="QPushButton" name="LoadScanButton">
         <property name="text">
          <string>Load scans</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="GetInfoButton">
+        <property name="text">
+         <string>Get Patient Info</string>
         </property>
        </widget>
       </item>

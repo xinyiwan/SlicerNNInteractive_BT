@@ -222,6 +222,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # added connection for choosing scans
         self.ui.LoadScanButton.clicked.connect(self.loadScans)
+        self.ui.GetInfoButton.clicked.connect(self.updateInfo)
 
         # Save the results
         self.ui.SaveButton.clicked.connect(self.saveResults)
@@ -928,11 +929,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     # User input-info related functions 
     ###############################################################################
     
-    def get_path_patientID_scan(self, directory):
+    def get_path_patientID_scan(self):
         import os
         # Get all scalar volume nodes
         volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
-
+        dir_path, patient_ID, exp_id = '', '', ''
         # Get path from nodes
         if volume_nodes:
             first_node = volume_nodes[0]  # Get the first node
@@ -943,16 +944,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 exp_id = file_path.split('/')[-2]
 
                 dir_path = os.path.dirname(file_path)
-                return dir_path, patient_ID, exp_id
+                
             else:
                 print("No storage node.")
-                return
         else:
             print("No volume nodes found!")
-            return
-        
-        
-
+        return dir_path, patient_ID, exp_id
+    
     def loadScans(self):
         """
         load chosen scan directory
@@ -980,23 +978,31 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                         continue
                     else:
                         slicer.util.loadVolume(session)
+        
+        self.updateInfo()
+
+    def updateInfo(self):
 
         # Clinical info
         import pandas as pd
         data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
         
         # Get pid and scan info
-        _, patient_ID, exp_id = self.get_path_patientID_scan(self.directory)
-        # Get location info
-        loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
-        baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
-        
-        # Update UI
-        self.ui.PID.text = f'{patient_ID}'
-        self.ui.PID.styleSheet = "color: green" if self.ui.PID.text != 'None' else "color: Black"
-        self.ui.LocationLabel.text = f'{loc}'
-        self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
-        self.ui.BaselineLabel.text = f'{baseline_info}'
+        _, patient_ID, exp_id = self.get_path_patientID_scan()
+
+        if patient_ID != '':
+            # Get location info
+            loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
+            baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
+            
+            # Update UI
+            self.ui.PID.text = f'{patient_ID}'
+            self.ui.PID.styleSheet = "color: green" if self.ui.PID.text != 'None' else "color: Black"
+            self.ui.LocationLabel.text = f'{loc}'
+            self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
+            self.ui.BaselineLabel.text = f'{baseline_info}'
+        else:
+            print('No image found.')
     
     # def clearLoadedData(self):
     #     """Remove all volumes and segmentations from the scene"""
@@ -1009,7 +1015,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     #     seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
     #     for node in seg_nodes:
     #         slicer.mrmlScene.RemoveNode(node)
-        
         # print("Cleared all previously loaded data")
     def saveResults(self):
         import os
