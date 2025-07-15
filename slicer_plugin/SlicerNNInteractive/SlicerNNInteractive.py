@@ -9,6 +9,7 @@ import importlib.util
 
 import numpy as np
 from pathlib import Path
+import os
 
 import slicer
 import qt
@@ -173,6 +174,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             },
         }
 
+        self.setup_dataparameters()
         self.setup_shortcuts()
 
         self.all_prompt_buttons = {}
@@ -218,6 +220,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         self.ui.pbInteractionLassoCancel.clicked.connect(self.on_lasso_cancel_clicked)
 
+        # added connection for choosing scans
+        self.ui.LoadScanButton.clicked.connect(self.loadScans)
+
+        # Save the results
+        self.ui.SaveButton.clicked.connect(self.saveResults)
+
         self.addObserver(slicer.app.applicationLogic().GetInteractionNode(), 
             slicer.vtkMRMLInteractionNode.InteractionModeChangedEvent, self.on_interaction_node_modified)
 
@@ -245,6 +253,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             shortcut.activated.connect(shortcut_event)
             self.shortcut_items[shortcut_key] = shortcut
 
+    def setup_dataparameters(self):
+        self.directory = None
+
+
     def remove_shortcut_items(self):
         """
         Called at cleanup to remove all the shortcuts we attached.
@@ -262,6 +274,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         dependencies = {
             "requests_toolbelt": "requests_toolbelt",
             "skimage": "scikit-image",
+            "pandas":"pandas"
         }
 
         for dependency in dependencies:
@@ -910,7 +923,100 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         self.ui.pbInteractionScribble.click()  # turn it off
         self.ui.pbInteractionScribble.click()  # turn it on
+    
+    ###############################################################################
+    # User input-info related functions 
+    ###############################################################################
+    
+    def get_path_patientID_scan(self, directory):
+        import os
+        # Get all scalar volume nodes
+        volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
 
+        # Get path from nodes
+        if volume_nodes:
+            first_node = volume_nodes[0]  # Get the first node
+            storage_node = first_node.GetStorageNode()
+            if storage_node:
+                file_path = storage_node.GetFileName()
+                patient_ID = file_path.split('/')[-3]
+                exp_id = file_path.split('/')[-2]
+
+                dir_path = os.path.dirname(file_path)
+                return dir_path, patient_ID, exp_id
+            else:
+                print("No storage node.")
+                return
+        else:
+            print("No volume nodes found!")
+            return
+        
+        
+
+    def loadScans(self):
+        """
+        load chosen scan directory
+        """
+
+        # Choose dir of scans
+        self.directory = qt.QFileDialog.getExistingDirectory()
+        print(self.directory)
+        # Load images in the directory
+        if self.directory:
+            
+            # self.clearLoadedData()
+            # Get available sessions
+            sessions = sorted([
+                os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
+                for f in os.listdir(self.directory)
+                if f.endswith('.nii.gz') or f.endswith('.nii')
+            ])
+            segs = []
+            for session in sessions:
+                if 'seg' in session.lower():
+                    slicer.util.loadSegmentation(session)
+                else:
+                    if 'Localizer' in session or 'DYN' in session:
+                        continue
+                    else:
+                        slicer.util.loadVolume(session)
+
+        # Clinical info
+        import pandas as pd
+        data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
+        
+        # Get pid and scan info
+        _, patient_ID, exp_id = self.get_path_patientID_scan(self.directory)
+        # Get location info
+        loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
+        baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
+        
+        # Update UI
+        self.ui.PID.text = f'{patient_ID}'
+        self.ui.PID.styleSheet = "color: green" if self.ui.PID.text != 'None' else "color: Black"
+        self.ui.LocationLabel.text = f'{loc}'
+        self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
+        self.ui.BaselineLabel.text = f'{baseline_info}'
+    
+    # def clearLoadedData(self):
+    #     """Remove all volumes and segmentations from the scene"""
+    #     # Remove volumes
+    #     volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
+    #     for node in volume_nodes:
+    #         slicer.mrmlScene.RemoveNode(node)
+        
+    #     # Remove segmentations
+    #     seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+    #     for node in seg_nodes:
+    #         slicer.mrmlScene.RemoveNode(node)
+        
+        # print("Cleared all previously loaded data")
+    def saveResults(self):
+        import os
+        scan_dir, _, _ = self.get_path_patientID_scan(self.directory)
+        outputFile = os.path.join(scan_dir, 'status_notes.json')
+        res = {'status':'completed'}
+    
     ###############################################################################
     # Segmentation-related functions
     ###############################################################################
