@@ -962,7 +962,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Load images in the directory
         if self.directory:
             
-            # self.clearLoadedData()
+            self.clearLoadedData()
             # Get available sessions
             sessions = sorted([
                 os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
@@ -1004,18 +1004,18 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         else:
             print('No image found.')
     
-    # def clearLoadedData(self):
-    #     """Remove all volumes and segmentations from the scene"""
-    #     # Remove volumes
-    #     volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
-    #     for node in volume_nodes:
-    #         slicer.mrmlScene.RemoveNode(node)
+    def clearLoadedData(self):
+        """Remove all volumes and segmentations from the scene"""
+        # Remove volumes
+        volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
+        for node in volume_nodes:
+            slicer.mrmlScene.RemoveNode(node)
         
-    #     # Remove segmentations
-    #     seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
-    #     for node in seg_nodes:
-    #         slicer.mrmlScene.RemoveNode(node)
-        # print("Cleared all previously loaded data")
+        # Remove segmentations
+        seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+        for node in seg_nodes:
+            slicer.mrmlScene.RemoveNode(node)
+        print("Cleared all previously loaded data")
             
     def saveResults(self):
         import os
