@@ -1016,11 +1016,49 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     #     for node in seg_nodes:
     #         slicer.mrmlScene.RemoveNode(node)
         # print("Cleared all previously loaded data")
+            
     def saveResults(self):
         import os
-        scan_dir, _, _ = self.get_path_patientID_scan(self.directory)
-        outputFile = os.path.join(scan_dir, 'status_notes.json')
-        res = {'status':'completed'}
+        import datetime
+        import json
+        
+        try:
+            scan_dir, _, _ = self.get_path_patientID_scan()
+            if not scan_dir or not os.path.exists(scan_dir):
+                raise ValueError("Scan directory does not exist or is invalid")
+                
+            outputFile = os.path.join(scan_dir, 'bone_seg_notes.json')
+            
+            res = {
+                'status': 'completed',
+                'timestamp': '',
+                'boneseg_score': '',
+                'notes': ''
+            }
+            
+            # Get values from UI
+            boneseg_score = self.ui.SegScoreBox.currentText
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            notes = self.ui.plainTextEdit.toPlainText()  # For QPlainTextEdit
+            
+            # Update result dictionary
+            res.update({
+                'timestamp': timestamp,
+                'boneseg_score': boneseg_score,
+                'notes': notes
+            })
+            
+            # Write to file with pretty formatting
+            with open(outputFile, 'w') as outfile:
+                json.dump(res, outfile, indent=4)
+                
+            # Optional: Show success message in Slicer
+            slicer.util.infoDisplay(f"Results saved to {outputFile}", windowTitle="Save Successful")
+            
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to save results: {str(e)}", windowTitle="Save Error")
+            import traceback
+            traceback.print_exc()
     
     ###############################################################################
     # Segmentation-related functions
