@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>388</width>
-    <height>1307</height>
+    <height>1336</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -468,6 +468,20 @@
        </widget>
       </item>
      </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="contourCheckBox">
+     <property name="text">
+      <string>Check to show the contour only</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="finalSaveButton">
+     <property name="text">
+      <string>Save the final Segmentation!</string>
+     </property>
     </widget>
    </item>
    <item>

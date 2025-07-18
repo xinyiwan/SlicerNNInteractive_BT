@@ -23,7 +23,8 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from PythonQt.QtGui import QMessageBox
-
+from datetime import datetime
+import json
 
 ###############################################################################
 # Decorators and utility functions
@@ -110,6 +111,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
 
+        # Add these initialization variables
+        self.segmentation_history = []
+        self.directory = None  # Will be set when directory is chosen
+        self._undo_redo_connected = False
+
     def setup(self):
         """
         Overridden setup method. Initializes UI and setups up prompts.
@@ -174,7 +180,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             },
         }
 
-        self.setup_dataparameters()
+        # Initialize contour checkbox state
+        self.ui.contourCheckBox.setChecked(False) 
+
         self.setup_shortcuts()
 
         self.all_prompt_buttons = {}
@@ -185,6 +193,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         _ = self.get_current_segment_id()
         self.previous_states = {}
 
+        # Add this at the end of your setup method:
+        self.setup_auto_save()
+
+        
     def init_ui_functionality(self):
         """
         Connect UI elements to functions.
@@ -229,6 +241,180 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         self.addObserver(slicer.app.applicationLogic().GetInteractionNode(), 
             slicer.vtkMRMLInteractionNode.InteractionModeChangedEvent, self.on_interaction_node_modified)
+    
+        self.ui.finalSaveButton.clicked.connect(self.on_final_save)
+
+        # Add contour checkbox connection
+        self.ui.contourCheckBox.stateChanged.connect(self.on_contour_checkbox_changed)
+    
+    def on_contour_checkbox_changed(self, state):
+        """Handle contour checkbox state changes"""
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            return
+        
+        display_node = seg_node.GetDisplayNode()
+        if not display_node:
+            return
+        
+        # Get all segment IDs
+        segmentation = seg_node.GetSegmentation()
+        segment_ids = [segmentation.GetNthSegmentID(i) for i in range(segmentation.GetNumberOfSegments())]
+        
+        # Toggle fill opacity based on checkbox state
+        fill_opacity = 0.0 if state else 1.0  # 0 for checked (contour only), 1 for unchecked (filled)
+        
+        with slicer.util.NodeModify(display_node):
+            for segment_id in segment_ids:
+                display_node.SetSegmentOpacity2DFill(segment_id, fill_opacity)
+        
+        
+    def setup_auto_save(self):
+        """Initialize auto-save functionality"""
+        
+        # Add observer for undo events
+        self.connect_undo_redo_buttons()
+    
+    def connect_undo_redo_buttons(self):
+        """Connect to the actual undo/redo buttons in segment editor"""
+        editor = self.ui.editor_widget
+        undo_button = editor.findChild("QToolButton", "UndoButton")
+        redo_button = editor.findChild("QToolButton", "RedoButton")
+        
+        if undo_button:
+            undo_button.clicked.connect(self.on_undo_action)
+        if redo_button:
+            redo_button.clicked.connect(self.on_redo_action)
+    
+    def save_segmentation_nii(self, action_type, prompt_type=None, is_final=False):
+        """Save current segmentation as NIfTI.gz"""
+        if not self.directory:
+            return None
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = os.path.join(self.directory, "segmentation_history")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Generate appropriate filename
+        if is_final:
+            filename = f"FINAL_{timestamp}.nii.gz"
+        else:
+            prefix = prompt_type if prompt_type else action_type
+            filename = f"{prefix}_{timestamp}.nii.gz"
+
+        filepath = os.path.join(save_dir, filename)
+        
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            return None
+        
+        # Create temporary labelmap node
+        labelmap_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+        try:
+            # Export to labelmap
+            slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                seg_node,
+                labelmap_node,
+                self.get_volume_node()
+            )
+
+            # Create storage node and configure it
+            storage_node = labelmap_node.CreateDefaultStorageNode()
+            slicer.mrmlScene.AddNode(storage_node)
+            storage_node.SetFileName(filepath)
+
+            if not storage_node.WriteData(labelmap_node):
+                raise RuntimeError(f"Failed to save segmentation to {filepath}")
+            
+            # Verify file was created
+            if not os.path.exists(filepath):
+                raise RuntimeError(f"Output file not created: {filepath}")
+                        
+            # Record in history
+            history_entry = {
+                'timestamp': timestamp,
+                'filename': filename,
+                'action': action_type,
+                'prompt_type': prompt_type,
+                'is_final': is_final 
+            }
+            self.segmentation_history.append(history_entry)
+            self.save_history_file()
+            
+            return filepath
+        except Exception as e:
+            debug_print(f"Error saving segmentation: {str(e)}")
+            # Remove partially written file if it exists
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
+            return None
+            
+        finally:
+            # Clean up temporary nodes
+            if storage_node:
+                slicer.mrmlScene.RemoveNode(storage_node)
+            if labelmap_node:
+                slicer.mrmlScene.RemoveNode(labelmap_node)
+
+    def save_history_file(self):
+        """Save history to JSON file"""
+        if not self.directory:
+            return
+            
+        history_path = os.path.join(self.directory, "segmentation_history", "history.json")
+
+        history_data = {
+        'version': '1.1',
+        'created': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'entries': self.segmentation_history,
+        'final_save': next((e for e in reversed(self.segmentation_history) if e.get('is_final')), None)
+        }
+        
+        with open(history_path, 'w') as f:
+            json.dump(self.segmentation_history, f, indent=2)
+
+    def on_undo_action(self):
+        """Called when undo button is clicked"""
+        # Let the undo complete first
+        qt.QTimer.singleShot(100, lambda: self.save_segmentation_nii("undo"))
+
+    def on_redo_action(self):
+        """Called when redo button is clicked"""
+        # Let the redo complete first  
+        qt.QTimer.singleShot(100, lambda: self.save_segmentation_nii("redo"))
+
+    def on_final_save(self):
+        """Handle final save button click"""
+        if not self.directory:
+            slicer.util.warningDisplay("Please set a directory first", windowTitle="Save Error")
+            return
+        
+        # Save current segmentation
+        result = self.save_segmentation_nii("FINAL", is_final=True)
+        
+        if result:
+            # Update history to mark this as final
+            self.update_history_as_final(result)
+            slicer.util.infoDisplay(f"Final segmentation saved to:\n{result}", windowTitle="Save Successful")
+        else:
+            slicer.util.errorDisplay("Failed to save final segmentation", windowTitle="Save Error")
+    
+    def update_history_as_final(self, final_filepath):
+        """Mark all previous entries as not-final and update the final one"""
+        filename = os.path.basename(final_filepath)
+        
+        # Update all entries in history
+        for entry in self.segmentation_history:
+            entry['is_final'] = False
+            if entry['filename'] == filename:
+                entry['is_final'] = True
+        
+        self.save_history_file()
 
     def setup_shortcuts(self):
         """
@@ -254,8 +440,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             shortcut.activated.connect(shortcut_event)
             self.shortcut_items[shortcut_key] = shortcut
 
-    def setup_dataparameters(self):
-        self.directory = None
 
 
     def remove_shortcut_items(self):
@@ -350,6 +534,22 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """
         Clean up resources when the module is closed.
         """
+        # Disconnect undo/redo buttons
+        editor = self.ui.editor_widget
+        undo_button = editor.findChild("QToolButton", "UndoButton")
+        redo_button = editor.findChild("QToolButton", "RedoButton")
+        
+        if undo_button:
+            try:
+                undo_button.clicked.disconnect(self.on_undo_action)
+            except:
+                pass
+        if redo_button:
+            try:
+                redo_button.clicked.disconnect(self.on_redo_action)
+            except:
+                pass
+
         self.removeObservers()
 
         if hasattr(self, "_qt_event_filters"):
@@ -674,6 +874,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         debug_print(f"{positive_click} point prompt triggered! {xyz}")
 
         self.show_segmentation(unpacked_segmentation)
+        # Save the result
+        self.save_segmentation_nii("prompt", "point")
 
     #
     #  -- Bounding Box
@@ -741,6 +943,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             seg_response.content, decompress=False
         )
         self.show_segmentation(unpacked_segmentation)
+        # Save the result
+        self.save_segmentation_nii("prompt", "bbox")
 
     #
     #  -- Lasso
@@ -881,6 +1085,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                     seg_response.content, decompress=False
                 )
                 self.show_segmentation(unpacked_segmentation)
+                # Save the result
+                self.save_segmentation_nii("prompt", tp)
+
             else:
                 debug_print(
                     f"lasso_or_scribble_prompt upload failed with status code: {seg_response.status_code}"
@@ -958,11 +1165,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Choose dir of scans
         self.directory = qt.QFileDialog.getExistingDirectory()
-        print(self.directory)
+
         # Load images in the directory
         if self.directory:
-            
             self.clearLoadedData()
+            # Initialize auto-save
+            self.setup_auto_save()
+
             # Get available sessions
             sessions = sorted([
                 os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
@@ -988,8 +1197,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
         
         # Get pid and scan info
-        _, patient_ID, exp_id = self.get_path_patientID_scan()
-
+        scan_dir, patient_ID, exp_id = self.get_path_patientID_scan()
+        if self.directory == None:
+            self.directory = scan_dir
+        
         if patient_ID != '':
             # Get location info
             loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
