@@ -338,9 +338,15 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 'filename': filename,
                 'action': action_type,
                 'prompt_type': prompt_type,
+                'is_reset':action_type == "reset",
                 'is_final': is_final 
             }
-            self.segmentation_history.append(history_entry)
+
+            def if_timestamp_exist(timestamp):
+                return any(entry['timestamp'] == timestamp for entry in self.segmentation_history)
+
+            if not if_timestamp_exist(timestamp):
+                self.segmentation_history.append(history_entry)
             self.save_history_file()
             
             return filepath
@@ -372,6 +378,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         'version': '1.1',
         'created': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'entries': self.segmentation_history,
+        'reset_actions': [e for e in self.segmentation_history if e.get('is_reset')],
         'final_save': next((e for e in reversed(self.segmentation_history) if e.get('is_final')), None)
         }
         
@@ -1176,11 +1183,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             sessions = sorted([
                 os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
                 for f in os.listdir(self.directory)
-                if f.endswith('.nii.gz') or f.endswith('.nii')
+                if f.endswith('.nii.gz') or f.endswith('.nii') 
             ])
             segs = []
             for session in sessions:
                 if 'seg' in session.lower():
+                    print(session)
                     slicer.util.loadSegmentation(session)
                 else:
                     if 'Localizer' in session or 'DYN' in session:
@@ -1326,6 +1334,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         if selected_segment_id:
             debug_print(f"Clearing segment: {selected_segment_id}")
+
+            # Save empty segmentation before clearing
+            reset_path = self.save_segmentation_nii("reset")
+    
             self.show_segmentation(
                 np.zeros(self.get_image_data().shape, dtype=np.uint8)
             )
