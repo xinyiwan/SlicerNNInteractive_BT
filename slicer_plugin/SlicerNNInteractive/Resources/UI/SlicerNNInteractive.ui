@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>388</width>
-    <height>1336</height>
+    <height>1363</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -435,8 +435,11 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="widget" native="true">
-     <layout class="QHBoxLayout" name="horizontalLayout_3">
+    <widget class="QGroupBox" name="groupBox_4">
+     <property name="title">
+      <string/>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_7">
       <item>
        <widget class="QPushButton" name="LoadScanButton">
         <property name="text">
@@ -455,6 +458,44 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="ReviewPanel">
+     <property name="font">
+      <font>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+       <underline>true</underline>
+      </font>
+     </property>
+     <property name="title">
+      <string>Reviewer Panel</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_6">
+      <item>
+       <widget class="QCheckBox" name="CorrectionButton">
+        <property name="text">
+         <string>Add Manual Correction</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="RedoButton">
+        <property name="text">
+         <string>Redo Segmentation</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="contourCheckBox">
+     <property name="text">
+      <string>Only show the contour of the segmentation</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="segmentationGroup">
      <property name="title">
       <string>Segment Editor</string>
@@ -468,13 +509,6 @@
        </widget>
       </item>
      </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="contourCheckBox">
-     <property name="text">
-      <string>Check to show the contour only</string>
-     </property>
     </widget>
    </item>
    <item>

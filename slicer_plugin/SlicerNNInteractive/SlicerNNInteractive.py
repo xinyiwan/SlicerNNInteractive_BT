@@ -236,6 +236,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.LoadScanButton.clicked.connect(self.loadScans)
         self.ui.GetInfoButton.clicked.connect(self.updateInfo)
 
+        # added connection for reviewer panel
+        self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
+        self.ui.RedoButton.clicked.connect(self.checkReviewChoice)
+
         # Save the results
         self.ui.SaveButton.clicked.connect(self.saveResults)
 
@@ -291,8 +295,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         if not self.directory:
             return None
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = os.path.join(self.directory, "segmentation_history")
+        # Determine save directory based on review mode
+        if self.ui.CorrectionButton.isChecked():
+            save_dir = os.path.join(self.directory, "review_correction")
+        elif self.ui.RedoButton.isChecked():
+            save_dir = os.path.join(self.directory, "review_redo")
+        else:
+            save_dir = os.path.join(self.directory, "segmentation_history")
+        
         os.makedirs(save_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -342,14 +352,17 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 'is_final': is_final 
             }
 
-            def if_timestamp_exist(timestamp):
-                return any(entry['timestamp'] == timestamp for entry in self.segmentation_history)
-
-            if not if_timestamp_exist(timestamp):
-                self.segmentation_history.append(history_entry)
-            self.save_history_file()
+            if self.ui.CorrectionButton.isChecked():
+                self.save_review_history("correction", history_entry)
+            elif self.ui.RedoButton.isChecked():
+                self.save_review_history("redo", history_entry)
+            else:
+                if not any(entry['timestamp'] == timestamp for entry in self.segmentation_history):
+                    self.segmentation_history.append(history_entry)
+                self.save_history_file()
             
             return filepath
+        
         except Exception as e:
             debug_print(f"Error saving segmentation: {str(e)}")
             # Remove partially written file if it exists
@@ -371,19 +384,72 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """Save history to JSON file"""
         if not self.directory:
             return
-            
-        history_path = os.path.join(self.directory, "segmentation_history", "history.json")
 
-        history_data = {
-        'version': '1.1',
-        'created': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'entries': self.segmentation_history,
-        'reset_actions': [e for e in self.segmentation_history if e.get('is_reset')],
-        'final_save': next((e for e in reversed(self.segmentation_history) if e.get('is_final')), None)
-        }
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        os.makedirs(history_dir, exist_ok=True)
+        history_path = os.path.join(history_dir, "history.json")
+            
+        # Initialize with empty list if no history exists yet
+        current_history = []
+
+        # Load existing history if file exists
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    current_history = json.load(f)
+            except Exception as e:
+                debug_print(f"Error reading history file: {e}")
+                current_history = []
+
+        # Add new entries that aren't already in the history
+        new_entries = []
+        for entry in self.segmentation_history:
+            # Check if entry already exists in history (based on timestamp)
+            if not any(e.get('timestamp') == entry.get('timestamp') for e in current_history):
+                new_entries.append(entry)
         
-        with open(history_path, 'w') as f:
-            json.dump(self.segmentation_history, f, indent=2)
+        # Combine old and new entries
+        updated_history = current_history + new_entries
+        
+        # Save the combined history
+        try:
+            with open(history_path, 'w') as f:
+                json.dump(updated_history, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving history file: {e}")
+
+    def get_review_history_path(self, review_type):
+        """Get path for review history file based on type (correction/redo)"""
+        if not self.directory:
+            return None
+        review_dir = os.path.join(self.directory, f"review_{review_type}")
+        os.makedirs(review_dir, exist_ok=True)
+        return os.path.join(review_dir, "history.json")
+
+    def save_review_history(self, review_type, entry):
+        """Save an entry to the appropriate review history file"""
+        history_path = self.get_review_history_path(review_type)
+        if not history_path:
+            return
+        
+        # Load existing history if available
+        existing_history = []
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    existing_history = json.load(f)
+            except Exception as e:
+                debug_print(f"Error reading review history: {e}")
+        
+        # Add new entry
+        existing_history.append(entry)
+        
+        # Save updated history
+        try:
+            with open(history_path, 'w') as f:
+                json.dump(existing_history, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving review history: {e}")
 
     def on_undo_action(self):
         """Called when undo button is clicked"""
@@ -405,9 +471,32 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         result = self.save_segmentation_nii("FINAL", is_final=True)
         
         if result:
-            # Update history to mark this as final
-            self.update_history_as_final(result)
-            slicer.util.infoDisplay(f"Final segmentation saved to:\n{result}", windowTitle="Save Successful")
+            if self.ui.CorrectionButton.isChecked():
+                # Add completion entry to correction history
+                completion_entry = {
+                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    'action': "review_correction_complete",
+                    'filename': os.path.basename(result),
+                    'notes': "Completed manual correction review"
+                }
+                self.save_review_history("correction", completion_entry)
+                message = "Final corrected segmentation saved"
+            elif self.ui.RedoButton.isChecked():
+                # Add completion entry to redo history
+                completion_entry = {
+                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    'action': "review_redo_complete",
+                    'filename': os.path.basename(result),
+                    'notes': "Completed re-segmentation review"
+                }
+                self.save_review_history("redo", completion_entry)
+                message = "Final re-segmentation saved"
+            else:
+                # Original segmentation workflow
+                self.update_history_as_final(result)
+                message = "Final segmentation saved"
+            
+            slicer.util.infoDisplay(f"{message}:\n{result}", windowTitle="Save Successful")
         else:
             slicer.util.errorDisplay("Failed to save final segmentation", windowTitle="Save Error")
     
@@ -422,6 +511,86 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 entry['is_final'] = True
         
         self.save_history_file()
+    
+    def check_existing_history(self):
+        """Check if history exists and return FINAL segmentation path if available"""
+        if not self.directory:
+            return None, []
+            
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        history_file = os.path.join(history_dir, "history.json")
+        
+        if not os.path.exists(history_file):
+            return None, []
+            
+        try:
+            with open(history_file, 'r') as f:
+                existing_history = json.load(f)
+                
+            # Find the most recent FINAL segmentation
+            final_entry = next((e for e in reversed(existing_history) if e.get('is_final')), None)
+            final_path = os.path.join(history_dir, final_entry['filename']) if final_entry else None
+            
+            # Merge with any in-memory history
+            if hasattr(self, 'segmentation_history'):
+                # Filter out duplicates
+                new_entries = [e for e in self.segmentation_history 
+                            if not any(ex.get('timestamp') == e.get('timestamp') for ex in existing_history)]
+                existing_history.extend(new_entries)
+            
+            return final_path, existing_history
+        except Exception as e:
+            debug_print(f"Error reading history: {e}")
+            return None, []
+    
+    def checkReviewChoice(self):
+        if self.ui.CorrectionButton.isChecked() and (not self.ui.RedoButton.isChecked()):
+            # Save pending load to correction history if exists
+            print(self.pending_load_entry)
+            print(hasattr(self, 'pending_load_entry'))
+
+            if self.pending_load_entry:
+                self.save_review_history("correction", self.pending_load_entry)
+                self.pending_load_entry = None
+            
+            # Manual correction mode
+            correction_entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "correction_start",
+                'notes': "Beginning manual corrections"
+            }
+        
+            self.save_review_history("correction", correction_entry)
+            slicer.util.infoDisplay("Now recording manual correction review session", windowTitle="Correction Mode")
+
+        elif not self.ui.CorrectionButton.isChecked() and self.ui.RedoButton.isChecked():
+
+            if hasattr(self, 'pending_load_entry') and self.pending_load_entry:
+                self.save_review_history("redo", self.pending_load_entry)
+                self.pending_load_entry = None
+                
+            # Redo mode - hide existing segmentation
+            seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+            for seg_node in seg_nodes:
+                if seg_node.GetName() != self.scribble_segment_node_name:
+                    seg_node.GetDisplayNode().SetVisibility(False)
+            
+            # Create new empty segmentation
+            self.get_segmentation_node()
+            
+            # Record redo start
+            redo_entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "redo_start",
+                'notes': "Beginning re-segmentation"
+            }
+            self.save_review_history("redo", redo_entry)
+            slicer.util.infoDisplay("Re-segmentation mode activated", windowTitle="Redo Mode")
+
+        elif self.ui.RedoButton.isChecked() and self.ui.CorrectionButton.isChecked():
+            slicer.util.errorDisplay("Only one option can be selected", windowTitle="Input Error")
+
+            
 
     def setup_shortcuts(self):
         """
@@ -565,6 +734,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self._qt_event_filters = []
 
         self.remove_shortcut_items()
+
+        """Clean up any pending load entry"""
+        if hasattr(self, 'pending_load_entry'):
+            del self.pending_load_entry
 
     def __del__(self):
         """
@@ -1172,29 +1345,56 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Choose dir of scans
         self.directory = qt.QFileDialog.getExistingDirectory()
+        
+        if not self.directory:
+            return
+        
+        # Store load timestamp but don't save yet
+        self.pending_load_entry = {
+            'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+            'filename': None,
+            'action': "load",
+            'prompt_type': None,
+            'is_reset': False,
+            'is_final': False
+        }
+        
+        # Clear existing data
+        self.clearLoadedData()
 
-        # Load images in the directory
-        if self.directory:
-            self.clearLoadedData()
-            # Initialize auto-save
-            self.setup_auto_save()
+        # Load images
+        sessions = sorted([
+            os.path.abspath(os.path.join(self.directory, f))
+            for f in os.listdir(self.directory)
+            if f.endswith('.nii.gz') or f.endswith('.nii') 
+        ])
 
-            # Get available sessions
-            sessions = sorted([
-                os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
-                for f in os.listdir(self.directory)
-                if f.endswith('.nii.gz') or f.endswith('.nii') 
-            ])
-            segs = []
-            for session in sessions:
-                if 'seg' in session.lower():
-                    print(session)
-                    slicer.util.loadSegmentation(session)
-                else:
-                    if 'Localizer' in session or 'DYN' in session:
-                        continue
-                    else:
-                        slicer.util.loadVolume(session)
+        # Load volume and segmentation files
+        for session in sessions:
+            if 'seg' in session.lower():
+                # Load segmentation but keep hidden
+                seg_node = slicer.util.loadSegmentation(session)
+                seg_node.GetDisplayNode().SetVisibility(False)
+            elif 'Localizer' in session or 'DYN' in session:
+                continue
+            else:
+                slicer.util.loadVolume(session)
+        
+        # Check if we're in reviewer mode (has existing segmentation history)
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        if os.path.exists(history_dir):
+            # This is a review session - don't record in original history
+            self.ui.ReviewPanel.setVisible(True)  # Show review options
+            final_seg_path, _ = self.check_existing_history()
+            slicer.util.loadSegmentation(final_seg_path)
+            slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
+
+        else:
+            # This is a first-time segmentation
+            self.ui.ReviewPanel.setVisible(False)
+            self.segmentation_history = [self.pending_load_entry]
+            self.save_history_file()
+            self.pending_load_entry = None
         
         self.updateInfo()
 
