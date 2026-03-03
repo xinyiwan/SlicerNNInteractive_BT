@@ -963,21 +963,25 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         if self.directory:
             
             self.clearLoadedData()
-            # Get available sessions
+            # Get available sessions (search recursively into subdirectories)
             sessions = sorted([
-                os.path.abspath(os.path.join(self.directory, f))  # Convert to absolute path
-                for f in os.listdir(self.directory)
-                if f.endswith('.nii.gz') or f.endswith('.nii')
+                p
+                for p in Path(self.directory).rglob('*')
+                if p.name.endswith('.nii.gz') or p.name.endswith('.nii')
             ])
-            segs = []
-            for session in sessions:
-                if 'seg' in session.lower():
-                    slicer.util.loadSegmentation(session)
+            for p in sessions:
+                folder_name = p.parent.name
+                if 'seg' in p.name.lower():
+                    node = slicer.util.loadSegmentation(str(p))
+                    if node:
+                        node.SetName(folder_name)
                 else:
-                    if 'Localizer' in session or 'DYN' in session:
+                    if 'Localizer' in p.name or 'DYN' in p.name:
                         continue
                     else:
-                        slicer.util.loadVolume(session)
+                        node = slicer.util.loadVolume(str(p))
+                        if node:
+                            node.SetName(folder_name)
         
         self.updateInfo()
 
