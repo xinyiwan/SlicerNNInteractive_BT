@@ -23,7 +23,8 @@ from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from PythonQt.QtGui import QMessageBox
-
+from datetime import datetime
+import json
 
 ###############################################################################
 # Decorators and utility functions
@@ -110,6 +111,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
 
+        # Add these initialization variables
+        self.segmentation_history = []
+        self.directory = None  # Will be set when directory is chosen
+        self._undo_redo_connected = False
+
     def setup(self):
         """
         Overridden setup method. Initializes UI and setups up prompts.
@@ -117,8 +123,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         ScriptedLoadableModuleWidget.setup(self)
 
         self.install_dependencies()
-
-        ui_widget = slicer.util.loadUI(self.resourcePath("UI/SlicerNNInteractive.ui"))
+        safe_path = "Z:/home/ext_xinwan/SlicerNNInteractive_BT/slicer_plugin/SlicerNNInteractive/Resources/UI/SlicerNNInteractive.ui"
+        if os.path.exists(safe_path):
+            print(f"File exists at safe_path")
+        ui_widget = slicer.util.loadUI(safe_path)
         self.layout.addWidget(ui_widget)
         self.ui = slicer.util.childWidgetVariables(ui_widget)
         self.scribble_segment_node_name = "ScribbleSegmentNode (do not touch)"
@@ -174,7 +182,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             },
         }
 
-        self.setup_dataparameters()
+        # Initialize contour checkbox state
+        self.ui.contourCheckBox.setChecked(False) 
+
         self.setup_shortcuts()
 
         self.all_prompt_buttons = {}
@@ -185,6 +195,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         _ = self.get_current_segment_id()
         self.previous_states = {}
 
+        # Add this at the end of your setup method:
+        self.setup_auto_save()
+
+        
     def init_ui_functionality(self):
         """
         Connect UI elements to functions.
@@ -224,11 +238,413 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.LoadScanButton.clicked.connect(self.loadScans)
         self.ui.GetInfoButton.clicked.connect(self.updateInfo)
 
+        # added connection for reviewer panel
+        self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
+        self.ui.RedoButton.clicked.connect(self.checkReviewChoice)
+
         # Save the results
         self.ui.SaveButton.clicked.connect(self.saveResults)
 
         self.addObserver(slicer.app.applicationLogic().GetInteractionNode(), 
             slicer.vtkMRMLInteractionNode.InteractionModeChangedEvent, self.on_interaction_node_modified)
+    
+        self.ui.finalSaveButton.clicked.connect(self.on_final_save)
+
+        # Add contour checkbox connection
+        self.ui.contourCheckBox.stateChanged.connect(self.on_contour_checkbox_changed)
+
+        # Set HTML content programmatically (avoids XML parser issues on Windows with long lines in .ui)
+        self.ui.textBrowser.setHtml(
+            "<p><span style='font-size:14px; font-weight:600; color:#1e53a3;'>Excellent</span>"
+            "<span style='font-size:14px;'>: The segmentation is perfectly aligned with the target bone and requires no adjustments."
+            " For this score, the segmentation volume should overlap with the bone for </span>"
+            "<span style='font-size:14px; text-decoration:underline;'>at least 95%</span>"
+            "<span style='font-size:14px;'>.</span></p>"
+            "<p><span style='font-size:14px; font-weight:600; color:#fdc030;'>Sufficient</span>"
+            "<span style='font-size:14px;'>: The segmentation is aligned with the target bone, however, could benefit from minor adjustments."
+            " For this score, the segmentation volume should overlap with the bone for </span>"
+            "<span style='font-size:14px; text-decoration:underline;'>at least 75%</span>"
+            "<span style='font-size:14px;'>.</span></p>"
+            "<p><span style='font-size:14px; font-weight:600;'>Insufficient</span>"
+            "<span style='font-size:14px;'>: The segmentation misses parts of the target bone, or parts are overlapping with other tissue,"
+            " therefore major adjustments are required."
+            " For this score, the segmentation volume should overlap with the bone for </span>"
+            "<span style='font-size:14px; text-decoration:underline;'>at least 50%</span>"
+            "<span style='font-size:14px;'>.</span></p>"
+            "<p><span style='font-size:14px; font-weight:600; color:#cd5937;'>Incorrect</span>"
+            "<span style='font-size:14px;'>: the segmentation is not overlapping with the target bone, or missing large areas of the bone."
+            " For this score, the segmentation volume does not overlap with the bones for </span>"
+            "<span style='font-size:14px; text-decoration:underline;'>&lt;50%</span>"
+            "<span style='font-size:14px;'>.</span></p>"
+            "<p><span style='font-size:14px; font-weight:600; font-style:italic; text-decoration:underline;'>No segmentation found</span>"
+            "<span style='font-size:14px;'>: There is no bone segmentation from the folder.</span></p>"
+        )
+        self.ui.textBrowser_2.setHtml(
+            "<p style='font-size:14px;'>1- patella, </p>"
+            "<p style='font-size:14px;'>2- tibia, </p>"
+            "<p style='font-size:14px;'>3- fibula, </p>"
+            "<p style='font-size:14px;'>4- tarsal, </p>"
+            "<p style='font-size:14px;'>5- metatarsal,</p>"
+            "<p style='font-size:14px;'>6- phalanges_feet, </p>"
+            "<p style='font-size:14px;'>7- ulna, </p>"
+            "<p style='font-size:14px;'>8- radius, </p>"
+            "<p style='font-size:14px;'>9- carpal, </p>"
+            "<p style='font-size:14px;'>10- metacarpal,</p>"
+            "<p style='font-size:14px;'>11- phalanges_hand</p>"
+        )
+    
+    def on_contour_checkbox_changed(self, state):
+        """Handle contour checkbox state changes"""
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            return
+        
+        display_node = seg_node.GetDisplayNode()
+        if not display_node:
+            return
+        
+        # Get all segment IDs
+        segmentation = seg_node.GetSegmentation()
+        segment_ids = [segmentation.GetNthSegmentID(i) for i in range(segmentation.GetNumberOfSegments())]
+        
+        # Toggle fill opacity based on checkbox state
+        fill_opacity = 0.0 if state else 1.0  # 0 for checked (contour only), 1 for unchecked (filled)
+        
+        with slicer.util.NodeModify(display_node):
+            for segment_id in segment_ids:
+                display_node.SetSegmentOpacity2DFill(segment_id, fill_opacity)
+                segment = segmentation.GetSegment(segment_id)
+                if segment:
+                    segment.SetColor(1.0, 0.0, 0.0)
+        
+        
+    def setup_auto_save(self):
+        """Initialize auto-save functionality"""
+        
+        # Add observer for undo events
+        self.connect_undo_redo_buttons()
+    
+    def connect_undo_redo_buttons(self):
+        """Connect to the actual undo/redo buttons in segment editor"""
+        editor = self.ui.editor_widget
+        undo_button = editor.findChild("QToolButton", "UndoButton")
+        redo_button = editor.findChild("QToolButton", "RedoButton")
+        
+        if undo_button:
+            undo_button.clicked.connect(self.on_undo_action)
+        if redo_button:
+            redo_button.clicked.connect(self.on_redo_action)
+    
+    def save_segmentation_nii(self, action_type, prompt_type=None, is_final=False):
+        """Save current segmentation as NIfTI.gz"""
+        if not self.directory:
+            return None
+        
+        # Get ref volume name
+        volume_node = self.get_volume_node()
+        volume_name = volume_node.GetName() if volume_node else "unknown_volume"
+
+        # Clean volume name for filename
+        import re
+        volume_name_clean = re.sub(r'[^a-zA-Z0-9_-]', '_', volume_name)
+        
+        # Determine save directory based on review mode
+        if self.ui.CorrectionButton.isChecked():
+            save_dir = os.path.join(self.directory, "review_correction")
+        elif self.ui.RedoButton.isChecked():
+            save_dir = os.path.join(self.directory, "review_redo")
+        else:
+            save_dir = os.path.join(self.directory, "segmentation_history")
+        
+        os.makedirs(save_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Generate appropriate filename
+        if is_final:
+            filename = f"FINAL_{volume_name_clean}_{timestamp}.nii.gz"
+        else:
+            prefix = prompt_type if prompt_type else action_type
+            filename = f"{prefix}_{volume_name_clean}_{timestamp}.nii.gz"
+
+        filepath = os.path.join(save_dir, filename)
+        
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            return None
+        
+        # Create temporary labelmap node
+        labelmap_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+        try:
+            # Export to labelmap
+            slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                seg_node,
+                labelmap_node,
+                self.get_volume_node()
+            )
+
+            # Create storage node and configure it
+            storage_node = labelmap_node.CreateDefaultStorageNode()
+            slicer.mrmlScene.AddNode(storage_node)
+            storage_node.SetFileName(filepath)
+
+            if not storage_node.WriteData(labelmap_node):
+                raise RuntimeError(f"Failed to save segmentation to {filepath}")
+            
+            # Verify file was created
+            if not os.path.exists(filepath):
+                raise RuntimeError(f"Output file not created: {filepath}")
+                        
+            # Record in history
+            history_entry = {
+                'timestamp': timestamp,
+                'filename': filename,
+                'action': action_type,
+                'prompt_type': prompt_type,
+                'is_reset':action_type == "reset",
+                'is_final': is_final,
+                'reference_volume': volume_name
+            }
+
+            if self.ui.CorrectionButton.isChecked():
+                self.save_review_history("correction", history_entry)
+            elif self.ui.RedoButton.isChecked():
+                self.save_review_history("redo", history_entry)
+            else:
+                if not any(entry['timestamp'] == timestamp for entry in self.segmentation_history):
+                    self.segmentation_history.append(history_entry)
+                self.save_history_file()
+            
+            return filepath
+        
+        except Exception as e:
+            debug_print(f"Error saving segmentation: {str(e)}")
+            # Remove partially written file if it exists
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
+            return None
+            
+        finally:
+            # Clean up temporary nodes
+            if storage_node:
+                slicer.mrmlScene.RemoveNode(storage_node)
+            if labelmap_node:
+                slicer.mrmlScene.RemoveNode(labelmap_node)
+
+    def save_history_file(self):
+        """Save history to JSON file"""
+        if not self.directory:
+            return
+
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        os.makedirs(history_dir, exist_ok=True)
+        history_path = os.path.join(history_dir, "history.json")
+            
+        # Initialize with empty list if no history exists yet
+        current_history = []
+
+        # Load existing history if file exists
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    current_history = json.load(f)
+            except Exception as e:
+                debug_print(f"Error reading history file: {e}")
+                current_history = []
+
+        # Add new entries that aren't already in the history
+        new_entries = []
+        for entry in self.segmentation_history:
+            # Check if entry already exists in history (based on timestamp)
+            if not any(e.get('timestamp') == entry.get('timestamp') for e in current_history):
+                new_entries.append(entry)
+        
+        # Combine old and new entries
+        updated_history = current_history + new_entries
+        
+        # Save the combined history
+        try:
+            with open(history_path, 'w') as f:
+                json.dump(updated_history, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving history file: {e}")
+
+    def get_review_history_path(self, review_type):
+        """Get path for review history file based on type (correction/redo)"""
+        if not self.directory:
+            return None
+        review_dir = os.path.join(self.directory, f"review_{review_type}")
+        os.makedirs(review_dir, exist_ok=True)
+        return os.path.join(review_dir, "history.json")
+
+    def save_review_history(self, review_type, entry):
+        """Save an entry to the appropriate review history file"""
+        history_path = self.get_review_history_path(review_type)
+        if not history_path:
+            return
+        
+        # Load existing history if available
+        existing_history = []
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    existing_history = json.load(f)
+            except Exception as e:
+                debug_print(f"Error reading review history: {e}")
+        
+        # Add new entry
+        existing_history.append(entry)
+        
+        # Save updated history
+        try:
+            with open(history_path, 'w') as f:
+                json.dump(existing_history, f, indent=2)
+        except Exception as e:
+            debug_print(f"Error saving review history: {e}")
+
+    def on_undo_action(self):
+        """Called when undo button is clicked"""
+        # Let the undo complete first
+        qt.QTimer.singleShot(100, lambda: self.save_segmentation_nii("undo"))
+
+    def on_redo_action(self):
+        """Called when redo button is clicked"""
+        # Let the redo complete first  
+        qt.QTimer.singleShot(100, lambda: self.save_segmentation_nii("redo"))
+
+    def on_final_save(self):
+        """Handle final save button click"""
+        if not self.directory:
+            slicer.util.warningDisplay("Please set a directory first", windowTitle="Save Error")
+            return
+        
+        # Save current segmentation
+        result = self.save_segmentation_nii("FINAL", is_final=True)
+        
+        if result:
+            if self.ui.CorrectionButton.isChecked():
+                # Add completion entry to correction history
+                completion_entry = {
+                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    'action': "review_correction_complete",
+                    'filename': os.path.basename(result),
+                    'notes': "Completed manual correction review"
+                }
+                self.save_review_history("correction", completion_entry)
+                message = "Final corrected segmentation saved"
+            elif self.ui.RedoButton.isChecked():
+                # Add completion entry to redo history
+                completion_entry = {
+                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    'action': "review_redo_complete",
+                    'filename': os.path.basename(result),
+                    'notes': "Completed re-segmentation review"
+                }
+                self.save_review_history("redo", completion_entry)
+                message = "Final re-segmentation saved"
+            else:
+                # Original segmentation workflow
+                self.update_history_as_final(result)
+                message = "Final segmentation saved"
+            
+            slicer.util.infoDisplay(f"{message}:\n{result}", windowTitle="Save Successful")
+        else:
+            slicer.util.errorDisplay("Failed to save final segmentation", windowTitle="Save Error")
+    
+    def update_history_as_final(self, final_filepath):
+        """Mark all previous entries as not-final and update the final one"""
+        filename = os.path.basename(final_filepath)
+        
+        # Update all entries in history
+        for entry in self.segmentation_history:
+            entry['is_final'] = False
+            if entry['filename'] == filename:
+                entry['is_final'] = True
+        
+        self.save_history_file()
+    
+    def check_existing_history(self):
+        """Check if history exists and return FINAL segmentation path if available"""
+        if not self.directory:
+            return None, []
+            
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        history_file = os.path.join(history_dir, "history.json")
+        
+        if not os.path.exists(history_file):
+            return None, []
+            
+        try:
+            with open(history_file, 'r') as f:
+                existing_history = json.load(f)
+                
+            # Find the most recent FINAL segmentation
+            final_entry = next((e for e in reversed(existing_history) if e.get('is_final')), None)
+            final_path = os.path.join(history_dir, final_entry['filename']) if final_entry else None
+            
+            # Merge with any in-memory history
+            if hasattr(self, 'segmentation_history'):
+                # Filter out duplicates
+                new_entries = [e for e in self.segmentation_history 
+                            if not any(ex.get('timestamp') == e.get('timestamp') for ex in existing_history)]
+                existing_history.extend(new_entries)
+            
+            return final_path, existing_history
+        except Exception as e:
+            debug_print(f"Error reading history: {e}")
+            return None, []
+    
+    def checkReviewChoice(self):
+        if self.ui.CorrectionButton.isChecked() and (not self.ui.RedoButton.isChecked()):
+            # Save pending load to correction history if exists
+            print(self.pending_load_entry)
+            print(hasattr(self, 'pending_load_entry'))
+
+            if self.pending_load_entry:
+                self.save_review_history("correction", self.pending_load_entry)
+                self.pending_load_entry = None
+            
+            # Manual correction mode
+            correction_entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "correction_start",
+                'notes': "Beginning manual corrections"
+            }
+        
+            self.save_review_history("correction", correction_entry)
+            slicer.util.infoDisplay("Now recording manual correction review session", windowTitle="Correction Mode")
+
+        elif not self.ui.CorrectionButton.isChecked() and self.ui.RedoButton.isChecked():
+
+            if hasattr(self, 'pending_load_entry') and self.pending_load_entry:
+                self.save_review_history("redo", self.pending_load_entry)
+                self.pending_load_entry = None
+                
+            # Redo mode - hide existing segmentation
+            seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+            for seg_node in seg_nodes:
+                if seg_node.GetName() != self.scribble_segment_node_name:
+                    seg_node.GetDisplayNode().SetVisibility(False)
+            
+            # Create new empty segmentation
+            self.get_segmentation_node()
+            
+            # Record redo start
+            redo_entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "redo_start",
+                'notes': "Beginning re-segmentation"
+            }
+            self.save_review_history("redo", redo_entry)
+            slicer.util.infoDisplay("Re-segmentation mode activated", windowTitle="Redo Mode")
+
+        elif self.ui.RedoButton.isChecked() and self.ui.CorrectionButton.isChecked():
+            slicer.util.errorDisplay("Only one option can be selected", windowTitle="Input Error")
+
+            
 
     def setup_shortcuts(self):
         """
@@ -254,8 +670,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             shortcut.activated.connect(shortcut_event)
             self.shortcut_items[shortcut_key] = shortcut
 
-    def setup_dataparameters(self):
-        self.directory = None
 
 
     def remove_shortcut_items(self):
@@ -350,6 +764,22 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """
         Clean up resources when the module is closed.
         """
+        # Disconnect undo/redo buttons
+        editor = self.ui.editor_widget
+        undo_button = editor.findChild("QToolButton", "UndoButton")
+        redo_button = editor.findChild("QToolButton", "RedoButton")
+        
+        if undo_button:
+            try:
+                undo_button.clicked.disconnect(self.on_undo_action)
+            except:
+                pass
+        if redo_button:
+            try:
+                redo_button.clicked.disconnect(self.on_redo_action)
+            except:
+                pass
+
         self.removeObservers()
 
         if hasattr(self, "_qt_event_filters"):
@@ -358,6 +788,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self._qt_event_filters = []
 
         self.remove_shortcut_items()
+
+        """Clean up any pending load entry"""
+        if hasattr(self, 'pending_load_entry'):
+            del self.pending_load_entry
 
     def __del__(self):
         """
@@ -674,6 +1108,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         debug_print(f"{positive_click} point prompt triggered! {xyz}")
 
         self.show_segmentation(unpacked_segmentation)
+        # Save the result
+        self.save_segmentation_nii("prompt", "point")
 
     #
     #  -- Bounding Box
@@ -741,6 +1177,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             seg_response.content, decompress=False
         )
         self.show_segmentation(unpacked_segmentation)
+        # Save the result
+        self.save_segmentation_nii("prompt", "bbox")
 
     #
     #  -- Lasso
@@ -881,6 +1319,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                     seg_response.content, decompress=False
                 )
                 self.show_segmentation(unpacked_segmentation)
+                # Save the result
+                self.save_segmentation_nii("prompt", tp)
+
             else:
                 debug_print(
                     f"lasso_or_scribble_prompt upload failed with status code: {seg_response.status_code}"
@@ -958,30 +1399,56 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Choose dir of scans
         self.directory = qt.QFileDialog.getExistingDirectory()
-        print(self.directory)
-        # Load images in the directory
-        if self.directory:
-            
-            self.clearLoadedData()
-            # Get available sessions (search recursively into subdirectories)
-            sessions = sorted([
-                p
-                for p in Path(self.directory).rglob('*')
-                if p.name.endswith('.nii.gz') or p.name.endswith('.nii')
-            ])
-            for p in sessions:
-                folder_name = p.parent.name
-                if 'seg' in p.name.lower():
-                    node = slicer.util.loadSegmentation(str(p))
-                    if node:
-                        node.SetName(folder_name)
-                else:
-                    if 'Localizer' in p.name or 'DYN' in p.name:
-                        continue
-                    else:
-                        node = slicer.util.loadVolume(str(p))
-                        if node:
-                            node.SetName(folder_name)
+        
+        if not self.directory:
+            return
+        
+        # Store load timestamp but don't save yet
+        self.pending_load_entry = {
+            'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+            'filename': None,
+            'action': "load",
+            'prompt_type': None,
+            'is_reset': False,
+            'is_final': False
+        }
+        
+        # Clear existing data
+        self.clearLoadedData()
+
+        # Load images
+        sessions = sorted([
+            os.path.abspath(os.path.join(self.directory, f))
+            for f in os.listdir(self.directory)
+            if f.endswith('.nii.gz') or f.endswith('.nii') 
+        ])
+
+        # Load volume and segmentation files
+        for session in sessions:
+            if 'seg' in session.lower():
+                # Load segmentation but keep hidden
+                seg_node = slicer.util.loadSegmentation(session)
+                seg_node.GetDisplayNode().SetVisibility(False)
+            elif 'Localizer' in session or 'DYN' in session:
+                continue
+            else:
+                slicer.util.loadVolume(session)
+        
+        # Check if we're in reviewer mode (has existing segmentation history)
+        history_dir = os.path.join(self.directory, "segmentation_history")
+        if os.path.exists(history_dir):
+            # This is a review session - don't record in original history
+            self.ui.ReviewPanel.setVisible(True)  # Show review options
+            final_seg_path, _ = self.check_existing_history()
+            slicer.util.loadSegmentation(final_seg_path)
+            slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
+
+        else:
+            # This is a first-time segmentation
+            self.ui.ReviewPanel.setVisible(False)
+            self.segmentation_history = [self.pending_load_entry]
+            self.save_history_file()
+            self.pending_load_entry = None
         
         self.updateInfo()
 
@@ -992,8 +1459,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
         
         # Get pid and scan info
-        _, patient_ID, exp_id = self.get_path_patientID_scan()
-
+        scan_dir, patient_ID, exp_id = self.get_path_patientID_scan()
+        if self.directory == None:
+            self.directory = scan_dir
+        
         if patient_ID != '':
             # Get location info
             loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
@@ -1119,6 +1588,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         if selected_segment_id:
             debug_print(f"Clearing segment: {selected_segment_id}")
+
+            # Save empty segmentation before clearing
+            reset_path = self.save_segmentation_nii("reset")
+    
             self.show_segmentation(
                 np.zeros(self.get_image_data().shape, dtype=np.uint8)
             )

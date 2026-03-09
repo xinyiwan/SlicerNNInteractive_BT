@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>388</width>
-    <height>1307</height>
+    <height>1363</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -435,8 +435,11 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="widget" native="true">
-     <layout class="QHBoxLayout" name="horizontalLayout_3">
+    <widget class="QGroupBox" name="groupBox_4">
+     <property name="title">
+      <string/>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_7">
       <item>
        <widget class="QPushButton" name="LoadScanButton">
         <property name="text">
@@ -455,6 +458,44 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="ReviewPanel">
+     <property name="font">
+      <font>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+       <underline>true</underline>
+      </font>
+     </property>
+     <property name="title">
+      <string>Reviewer Panel</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_6">
+      <item>
+       <widget class="QCheckBox" name="CorrectionButton">
+        <property name="text">
+         <string>Add Manual Correction</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="RedoButton">
+        <property name="text">
+         <string>Redo Segmentation</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="contourCheckBox">
+     <property name="text">
+      <string>Only show the contour of the segmentation</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="segmentationGroup">
      <property name="title">
       <string>Segment Editor</string>
@@ -468,6 +509,13 @@
        </widget>
       </item>
      </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="finalSaveButton">
+     <property name="text">
+      <string>Save the final Segmentation!</string>
+     </property>
     </widget>
    </item>
    <item>
@@ -529,17 +577,6 @@
        <height>150</height>
       </size>
      </property>
-     <property name="html">
-      <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
-&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
-p, li { white-space: pre-wrap; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Sans Serif'; font-size:9pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; font-weight:600; color:#1e53a3;&quot;&gt;Excellent&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;: The segmentation is perfectly aligned with the target bone and requires no adjustments. For this score, the segmentation volume should overlap with the bone for &lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; text-decoration: underline;&quot;&gt;at least 95%&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; font-weight:600; color:#fdc030;&quot;&gt;Sufficient&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;: The segmentation is aligned with the target bone, however, could benefit from minor adjustments. For this score, the segmentation volume should overlap with the bone for &lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; text-decoration: underline;&quot;&gt;at least 75%&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; font-weight:600;&quot;&gt;Insufficient&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;: The segmentation misses parts of the target bone, or parts are overlapping with other tissue, therefore major adjustments are required. For this score, the segmentation volume should overlap with the bone for &lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; text-decoration: underline;&quot;&gt;at least 50%&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; font-weight:600; color:#cd5937;&quot;&gt;Incorrect&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;: the segmentation is not overlapping with the target bone, or missing large areas of the bone. For this score, the segmentation volume does not overlap with the bones for &lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; text-decoration: underline;&quot;&gt;&amp;lt;50%&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;.&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px; font-weight:600; font-style:italic; text-decoration: underline;&quot;&gt;No segmentation found&lt;/span&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;: There is no bone segmentation from the folder.&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-     </property>
     </widget>
    </item>
    <item>
@@ -550,23 +587,6 @@ p, li { white-space: pre-wrap; }
      <layout class="QHBoxLayout" name="horizontalLayout_5">
       <item>
        <widget class="QTextBrowser" name="textBrowser_2">
-        <property name="html">
-         <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
-&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
-p, li { white-space: pre-wrap; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Sans Serif'; font-size:9pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;1- patella, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;2-tibia, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;3-fibula, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;4-tarsal, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;5-metatarsal,&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;6-phalanges_feet, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;7-ulna, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;8-radius, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;9-carpal, &lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;10-metacarpal,&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot; margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'-apple-system','BlinkMacSystemFont','Segoe UI','system-ui','Apple Color Emoji','Segoe UI Emoji','Segoe UI Web','sans-serif'; font-size:14px;&quot;&gt;11-phalanges_hand&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-        </property>
        </widget>
       </item>
       <item>
