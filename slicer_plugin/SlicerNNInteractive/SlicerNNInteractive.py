@@ -1416,23 +1416,26 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Clear existing data
         self.clearLoadedData()
 
-        # Load images
+        # Get available sessions (search recursively into subdirectories)
         sessions = sorted([
-            os.path.abspath(os.path.join(self.directory, f))
-            for f in os.listdir(self.directory)
-            if f.endswith('.nii.gz') or f.endswith('.nii') 
+            p
+            for p in Path(self.directory).rglob('*')
+            if p.name.endswith('.nii.gz') or p.name.endswith('.nii')
         ])
 
         # Load volume and segmentation files
         for session in sessions:
-            if 'seg' in session.lower():
+            folder_name = session.parent.name
+            if 'seg' in str(session).lower():
                 # Load segmentation but keep hidden
                 seg_node = slicer.util.loadSegmentation(session)
                 seg_node.GetDisplayNode().SetVisibility(False)
-            elif 'Localizer' in session or 'DYN' in session:
+            elif 'Localizer' in str(session) or 'DYN' in str(session):
                 continue
             else:
-                slicer.util.loadVolume(session)
+                node = slicer.util.loadVolume(str(session))
+                if node:
+                    node.SetName(folder_name)
         
         # Check if we're in reviewer mode (has existing segmentation history)
         history_dir = os.path.join(self.directory, "segmentation_history")
