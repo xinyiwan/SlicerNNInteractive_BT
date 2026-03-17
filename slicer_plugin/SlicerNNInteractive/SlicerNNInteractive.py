@@ -115,7 +115,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.segmentation_history = []
         self.directory = None  # Will be set when directory is chosen
         self._undo_redo_connected = False
-        self.seg_directory = None
+        self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
         self.ai_seg_node = None
         self._last_volume_id = None
 
@@ -248,9 +248,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.LoadSegDirButton.clicked.connect(self.loadSegDirectory)
         self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
 
-        # Restore saved seg directory
-        savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", "")
-        if savedSegDir:
+        # Restore saved seg directory (fall back to the default project path)
+        _default_seg_dir = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
+        savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
+        if savedSegDir and os.path.exists(savedSegDir):
             self.seg_directory = savedSegDir
 
         # Observe active volume changes to auto-update AI seg
