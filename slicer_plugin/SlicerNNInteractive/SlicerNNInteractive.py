@@ -115,6 +115,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.segmentation_history = []
         self.directory = None  # Will be set when directory is chosen
         self._undo_redo_connected = False
+        self.seg_directory = None
+        self.ai_seg_node = None
+        self._last_volume_id = None
 
     def setup(self):
         """
