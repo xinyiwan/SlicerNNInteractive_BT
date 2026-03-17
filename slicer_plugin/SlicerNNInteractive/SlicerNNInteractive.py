@@ -241,6 +241,21 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # added connection for reviewer panel
         self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
         self.ui.RedoButton.clicked.connect(self.checkReviewChoice)
+        # Totalseg segmentation controls
+        self.ui.LoadSegDirButton.clicked.connect(self.loadSegDirectory)
+        self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
+
+        # Restore saved seg directory
+        savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", "")
+        if savedSegDir:
+            self.seg_directory = savedSegDir
+
+        # Observe active volume changes to auto-update AI seg
+        self.addObserver(
+            slicer.app.applicationLogic().GetSelectionNode(),
+            vtk.vtkCommand.ModifiedEvent,
+            self.on_active_volume_changed,
+        )
 
         # Save the results
         self.ui.SaveButton.clicked.connect(self.saveResults)
@@ -670,6 +685,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             shortcut.activated.connect(shortcut_event)
             self.shortcut_items[shortcut_key] = shortcut
 
+    def setup_dataparameters(self):
+        self.directory = None
+        self.seg_directory = None
+        self.ai_seg_node = None
+        self._last_volume_id = None
 
 
     def remove_shortcut_items(self):
@@ -1453,7 +1473,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.save_history_file()
             self.pending_load_entry = None
         
+        # Re-initialize prompts with the new volume (scribble node needs new geometry)
+        self.setup_prompts()
+
         self.updateInfo()
+
+        # Update AI seg if the checkbox is already checked
+        if self.ui.ShowSegCheckBox.isChecked():
+            qt.QTimer.singleShot(300, self.updateAISegmentation)
 
     def updateInfo(self):
 
@@ -1482,17 +1509,147 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     
     def clearLoadedData(self):
         """Remove all volumes and segmentations from the scene"""
+        # Detach editor widgets before removing nodes to prevent Slicer from
+        # auto-creating undo checkpoint files when nodes disappear unexpectedly.
+        self.ui.editor_widget.setSegmentationNode(None)
+        self.ui.editor_widget.setSourceVolumeNode(None)
+
+        # Clear the AI seg reference so it isn't double-removed
+        self.ai_seg_node = None
+
         # Remove volumes
         volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
         for node in volume_nodes:
             slicer.mrmlScene.RemoveNode(node)
-        
+
         # Remove segmentations
         seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
         for node in seg_nodes:
             slicer.mrmlScene.RemoveNode(node)
         print("Cleared all previously loaded data")
             
+    ###############################################################################
+    # AI bone segmentation display functions
+    ###############################################################################
+
+    def loadSegDirectory(self):
+        """Let the user choose the base directory that contains AI bone segmentations."""
+        seg_dir = qt.QFileDialog.getExistingDirectory(
+            None, "Select AI Segmentation Base Directory", self.seg_directory or ""
+        )
+        if seg_dir:
+            self.seg_directory = seg_dir
+            settings = qt.QSettings()
+            settings.setValue("SlicerNNInteractive/seg_directory", seg_dir)
+            if self.ui.ShowSegCheckBox.isChecked():
+                self.updateAISegmentation()
+
+    def onShowSegToggled(self, checked):
+        """Called when the Show AI Bone Seg checkbox is toggled."""
+        if checked:
+            self.updateAISegmentation()
+        else:
+            self.hideAISegmentation()
+
+    def getAISegPath(self):
+        """
+        Returns (seg_file_path, labels_file_path) for the current volume, or (None, None).
+        Expects the same relative path under self.seg_directory as under self.directory.
+        """
+        if not self.seg_directory or not self.directory:
+            return None, None
+
+        volume_node = self.get_volume_node()
+        if not volume_node:
+            return None, None
+
+        storage_node = volume_node.GetStorageNode()
+        if not storage_node:
+            return None, None
+
+        image_path = Path(storage_node.GetFileName())
+        try:
+            rel_path = image_path.parent.relative_to(self.directory)
+        except ValueError:
+            return None, None
+
+        seg_dir = Path(self.seg_directory) / rel_path
+        seg_file = seg_dir / "segmentations.nii.gz"
+        labels_file = seg_dir / "bone_seg_labels.json"
+
+        if not seg_file.exists():
+            return None, None
+
+        return str(seg_file), str(labels_file) if labels_file.exists() else None
+
+    def updateAISegmentation(self):
+        """Load and display the AI bone segmentation for the current volume."""
+        self.hideAISegmentation()
+
+        if not self.seg_directory:
+            slicer.util.warningDisplay(
+                "Please select the AI segmentation directory first by clicking 'Load AI Seg Dir'.",
+                windowTitle="No Segmentation Directory",
+            )
+            self.ui.ShowSegCheckBox.setChecked(False)
+            return
+
+        seg_path, labels_path = self.getAISegPath()
+
+        if seg_path is None:
+            slicer.util.warningDisplay(
+                "No AI segmentation found for this image.",
+                windowTitle="No Segmentation Found",
+            )
+            self.ui.ShowSegCheckBox.setChecked(False)
+            return
+
+        node = slicer.util.loadSegmentation(seg_path)
+        if node:
+            volume_node = self.get_volume_node()
+            node.SetName(f"AI_Seg_{volume_node.GetName() if volume_node else 'unknown'}")
+
+            if labels_path:
+                import json
+                with open(labels_path) as f:
+                    labels = json.load(f)
+                seg = node.GetSegmentation()
+                for i in range(seg.GetNumberOfSegments()):
+                    seg_id = seg.GetNthSegmentID(i)
+                    segment = seg.GetSegment(seg_id)
+                    # Try label index starting from 1, then 0
+                    name = labels.get(str(i + 1)) or labels.get(str(i))
+                    if name:
+                        segment.SetName(str(name))
+
+            self.ai_seg_node = node
+            self._last_volume_id = volume_node.GetID() if volume_node else None
+
+    def hideAISegmentation(self):
+        """Remove the AI segmentation node from the scene."""
+        if self.ai_seg_node and slicer.mrmlScene.IsNodePresent(self.ai_seg_node):
+            slicer.mrmlScene.RemoveNode(self.ai_seg_node)
+        self.ai_seg_node = None
+
+    def on_active_volume_changed(self, caller, event):
+        """Called when the active volume in the scene changes."""
+        if not self.ui.ShowSegCheckBox.isChecked():
+            return
+        current_volume = self.get_volume_node()
+        current_id = current_volume.GetID() if current_volume else None
+        if current_id != self._last_volume_id:
+            # Debounce: wait briefly in case multiple nodes change rapidly (e.g., during load)
+            qt.QTimer.singleShot(300, self._debounced_update_ai_seg)
+
+    def _debounced_update_ai_seg(self):
+        """Deferred update — only fires if the volume is still different from last shown."""
+        if not self.ui.ShowSegCheckBox.isChecked():
+            return
+        current_volume = self.get_volume_node()
+        current_id = current_volume.GetID() if current_volume else None
+        if current_id != self._last_volume_id:
+            self.updateAISegmentation()
+
     def saveResults(self):
         import os
         import datetime

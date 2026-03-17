@@ -435,24 +435,49 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="groupBox_4">
-     <property name="title">
-      <string/>
-     </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_7">
+    <widget class="QWidget" name="widget" native="true">
+     <layout class="QVBoxLayout" name="verticalLayout_scan_controls">
       <item>
-       <widget class="QPushButton" name="LoadScanButton">
-        <property name="text">
-         <string>Load scans</string>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <item>
+         <widget class="QPushButton" name="LoadScanButton">
+          <property name="text">
+           <string>Load scans</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="GetInfoButton">
+          <property name="text">
+           <string>Get Patient Info</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
-       <widget class="QPushButton" name="GetInfoButton">
-        <property name="text">
-         <string>Get Patient Info</string>
-        </property>
-       </widget>
+       <layout class="QHBoxLayout" name="horizontalLayout_seg">
+        <item>
+         <widget class="QPushButton" name="LoadSegDirButton">
+          <property name="toolTip">
+           <string>Select the base directory containing AI bone segmentations (segmentations.nii.gz)</string>
+          </property>
+          <property name="text">
+           <string>Load AI Seg Dir</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ShowSegCheckBox">
+          <property name="toolTip">
+           <string>Show/hide the AI bone segmentation for the current image</string>
+          </property>
+          <property name="text">
+           <string>Show AI Bone Seg</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>
