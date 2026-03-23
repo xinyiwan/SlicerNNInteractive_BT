@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>437</width>
-    <height>1541</height>
+    <height>1557</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -463,7 +463,7 @@
            <string>Show/hide the AI bone segmentation for the current image</string>
           </property>
           <property name="text">
-           <string>Show AI Bone Seg</string>
+           <string>Show Bone TotalSeg</string>
           </property>
          </widget>
         </item>
@@ -472,10 +472,7 @@
       <item>
        <widget class="QLabel" name="segSummaryLabel">
         <property name="text">
-         <string></string>
-        </property>
-        <property name="wordWrap">
-         <bool>true</bool>
+         <string/>
         </property>
        </widget>
       </item>
@@ -514,50 +511,13 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="contourCheckBox">
-     <property name="text">
-      <string>Only show the contour of the segmentation</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="segmentationGroup">
+    <widget class="QGroupBox" name="groupBox_3">
      <property name="title">
-      <string>Segment Editor</string>
-     </property>
-     <layout class="QVBoxLayout" name="segmentEditorLayout">
-      <item>
-       <widget class="qMRMLSegmentEditorWidget" name="editor_widget">
-        <property name="defaultTerminologyEntrySettingsKey">
-         <string notr="true"/>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QPushButton" name="finalSaveButton">
-     <property name="text">
-      <string>Save the final Segmentation!</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="Scoring">
-     <property name="title">
-      <string>Scoring on segmentations of the target bone</string>
+      <string>Choose Main Anatomy</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
-       <widget class="QLabel" name="label_4">
-        <property name="text">
-         <string>Score bone segmentation:</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="SegScoreBox">
+       <widget class="QComboBox" name="AnatomyBox">
         <item>
          <property name="text">
           <string>Excellent</string>
@@ -589,30 +549,41 @@
     </widget>
    </item>
    <item>
-    <widget class="QTextBrowser" name="textBrowser">
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
+    <widget class="QCheckBox" name="contourCheckBox">
+     <property name="text">
+      <string>Only show the contour of the segmentation</string>
      </property>
-     <property name="maximumSize">
-      <size>
-       <width>16777215</width>
-       <height>150</height>
-      </size>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="segmentationGroup">
+     <property name="title">
+      <string>Segment Editor</string>
+     </property>
+     <layout class="QVBoxLayout" name="segmentEditorLayout">
+      <item>
+       <widget class="qMRMLSegmentEditorWidget" name="editor_widget">
+        <property name="defaultTerminologyEntrySettingsKey">
+         <string notr="true"/>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="finalSaveButton">
+     <property name="text">
+      <string>Save the final Segmentation!</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox_2">
      <property name="title">
-      <string>Dictionary for bone segmentations &amp; Notes</string>
+      <string>Notes</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_5">
-      <item>
-       <widget class="QTextBrowser" name="textBrowser_2"/>
-      </item>
       <item>
        <widget class="QPlainTextEdit" name="plainTextEdit">
         <property name="plainText">

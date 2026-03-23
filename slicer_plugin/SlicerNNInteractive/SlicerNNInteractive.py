@@ -1463,12 +1463,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Check if we're in reviewer mode (has existing segmentation history)
         history_dir = os.path.join(self.directory, "segmentation_history")
         if os.path.exists(history_dir):
+            # TODO: check if the histroy json files only has loading histry 
+            # if so, then treat it as firstime 
+            # if not, follow below 
             # This is a review session - don't record in original history
             self.ui.ReviewPanel.setVisible(True)  # Show review options
             final_seg_path, _ = self.check_existing_history()
             slicer.util.loadSegmentation(final_seg_path)
             slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
-
         else:
             # This is a first-time segmentation
             self.ui.ReviewPanel.setVisible(False)
@@ -1633,7 +1635,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         node = slicer.util.loadSegmentation(seg_path)
         if node:
             volume_node = self.get_volume_node()
-            node.SetName(f"AI_Seg_{volume_node.GetName() if volume_node else 'unknown'}")
+            node.SetName(f"Total_Seg_{volume_node.GetName() if volume_node else 'unknown'}")
 
             if labels_path:
                 import json
