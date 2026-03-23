@@ -518,31 +518,6 @@
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
        <widget class="QComboBox" name="AnatomyBox">
-        <item>
-         <property name="text">
-          <string>Excellent</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Sufficient</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Insufficient</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Incorrect</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>No segmentation found</string>
-         </property>
-        </item>
        </widget>
       </item>
      </layout>

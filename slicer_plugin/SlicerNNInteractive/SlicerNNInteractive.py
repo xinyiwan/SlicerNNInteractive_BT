@@ -1460,19 +1460,26 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 if node:
                     node.SetName(folder_name)
         
-        # Check if we're in reviewer mode (has existing segmentation history)
+        # Check if we're in reviewer mode (has existing segmentation history with real operations)
         history_dir = os.path.join(self.directory, "segmentation_history")
-        if os.path.exists(history_dir):
-            # TODO: check if the histroy json files only has loading histry 
-            # if so, then treat it as firstime 
-            # if not, follow below 
+        history_path = os.path.join(history_dir, "history.json")
+        has_real_operations = False
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    existing_history = json.load(f)
+                has_real_operations = any(e.get('action') != 'load' for e in existing_history)
+            except Exception:
+                pass
+
+        if has_real_operations:
             # This is a review session - don't record in original history
             self.ui.ReviewPanel.setVisible(True)  # Show review options
             final_seg_path, _ = self.check_existing_history()
             slicer.util.loadSegmentation(final_seg_path)
             slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
         else:
-            # This is a first-time segmentation
+            # First-time segmentation (no history, or history only contains load entries)
             self.ui.ReviewPanel.setVisible(False)
             self.segmentation_history = [self.pending_load_entry]
             self.save_history_file()
@@ -1602,10 +1609,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             except Exception:
                 pass
 
+        self.ui.AnatomyBox.clear()
         if label_counts:
             top = label_counts.most_common(3)
             parts = [f"{name} ({count}/{total_files})" for name, count in top]
             summary = "Top structures: " + "; ".join(parts)
+            for name, _ in top:
+                self.ui.AnatomyBox.addItem(name)
         else:
             summary = ""
         self.ui.segSummaryLabel.setText(summary)
