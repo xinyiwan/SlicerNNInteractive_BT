@@ -245,7 +245,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
         self.ui.RedoButton.clicked.connect(self.checkReviewChoice)
         # Totalseg segmentation controls
-        self.ui.LoadSegDirButton.clicked.connect(self.loadSegDirectory)
         self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
 
         # Restore saved seg directory (fall back to the default project path)
@@ -1536,15 +1535,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     # AI bone segmentation display functions
     ###############################################################################
 
-    def loadSegDirectory(self):
-
-        if self.seg_directory:
-            seg_dir = self.seg_directory
-            settings = qt.QSettings()
-            settings.setValue("SlicerNNInteractive/seg_directory", seg_dir)
-            if self.ui.ShowSegCheckBox.isChecked():
-                self.updateAISegmentation()
-
     def onShowSegToggled(self, checked):
         """Called when the Show AI Bone Seg checkbox is toggled."""
         if checked:
@@ -1556,6 +1546,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """
         Returns (seg_file_path, labels_file_path) for the current volume, or (None, None).
         Expects the same relative path under self.seg_directory as under self.directory.
+        Also updates segSummaryLabel with the top-3 anatomy labels across all sessions
+        for the current subject.
         """
         if not self.seg_directory or not self.directory:
             return None, None
@@ -1578,10 +1570,43 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         seg_file = seg_dir / "segmentations.nii.gz"
         labels_file = seg_dir / "bone_seg_labels.json"
 
+        # Build subject-level summary (parent of session = patient/study dir)
+        subject_seg_dir = seg_dir.parent
+        self._updateSegSummaryLabel(subject_seg_dir)
+
         if not seg_file.exists():
             return None, None
 
         return str(seg_file), str(labels_file) if labels_file.exists() else None
+
+    def _updateSegSummaryLabel(self, subject_seg_dir):
+        """
+        Scans all bone_seg_labels.json files under subject_seg_dir,
+        counts every anatomy label, and displays the top 3 in segSummaryLabel.
+        """
+        import json
+        from collections import Counter
+
+        label_counts = Counter()
+        total_files = 0
+        for json_file in subject_seg_dir.glob("*/bone_seg_labels.json"):
+            try:
+                with open(json_file) as f:
+                    labels = json.load(f)
+                total_files += 1
+                for v in labels.values():
+                    if isinstance(v, str):
+                        label_counts[v] += 1
+            except Exception:
+                pass
+
+        if label_counts:
+            top = label_counts.most_common(3)
+            parts = [f"{name} ({count}/{total_files})" for name, count in top]
+            summary = "Top structures: " + "; ".join(parts)
+        else:
+            summary = ""
+        self.ui.segSummaryLabel.setText(summary)
 
     def updateAISegmentation(self):
         """Load and display the AI bone segmentation for the current volume."""
@@ -1589,7 +1614,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         if not self.seg_directory:
             slicer.util.warningDisplay(
-                "Please select the AI segmentation directory first by clicking 'Load AI Seg Dir'.",
+                "AI segmentation directory is not set.",
                 windowTitle="No Segmentation Directory",
             )
             self.ui.ShowSegCheckBox.setChecked(False)

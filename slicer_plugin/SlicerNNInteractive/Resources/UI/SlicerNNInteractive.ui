@@ -458,16 +458,6 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_seg">
         <item>
-         <widget class="QPushButton" name="LoadSegDirButton">
-          <property name="toolTip">
-           <string>Select the base directory containing AI bone segmentations (segmentations.nii.gz)</string>
-          </property>
-          <property name="text">
-           <string>Load AI Seg Dir</string>
-          </property>
-         </widget>
-        </item>
-        <item>
          <widget class="QCheckBox" name="ShowSegCheckBox">
           <property name="toolTip">
            <string>Show/hide the AI bone segmentation for the current image</string>
@@ -478,6 +468,16 @@
          </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="segSummaryLabel">
+        <property name="text">
+         <string></string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
       </item>
      </layout>
     </widget>
