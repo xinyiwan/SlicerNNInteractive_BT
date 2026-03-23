@@ -1386,7 +1386,16 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         
         if not self.directory:
             return
-        
+
+        # Capture AI seg checkbox state before clearing — the checkbox won't
+        # fire its toggled signal if the state doesn't change, so we retrigger
+        # it manually after loading the new subject.
+        was_showing_seg = self.ui.ShowSegCheckBox.isChecked()
+        if was_showing_seg:
+            self.ui.ShowSegCheckBox.blockSignals(True)
+            self.ui.ShowSegCheckBox.setChecked(False)
+            self.ui.ShowSegCheckBox.blockSignals(False)
+
         # Store load timestamp but don't save yet
         self.pending_load_entry = {
             'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
@@ -1451,9 +1460,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         self.updateInfo()
 
-        # Update AI seg if the checkbox is already checked
-        if self.ui.ShowSegCheckBox.isChecked():
-            qt.QTimer.singleShot(300, self.updateAISegmentation)
+        # Retrigger AI seg if it was showing before load
+        if was_showing_seg:
+            self.ui.ShowSegCheckBox.setChecked(True)  # fires onShowSegToggled → updateAISegmentation
 
     def updateInfo(self):
 
@@ -1489,6 +1498,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Clear the AI seg reference so it isn't double-removed
         self.ai_seg_node = None
+
+        # Reset summary label and anatomy box for the new subject
+        self.ui.segSummaryLabel.setText("")
+        self.ui.AnatomyBox.clear()
 
         # Remove volumes
         volume_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
