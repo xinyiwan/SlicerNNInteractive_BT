@@ -518,6 +518,11 @@
      <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
        <widget class="QComboBox" name="AnatomyBox">
+        <item>
+         <property name="text">
+          <string>Loading...</string>
+         </property>
+        </item>
        </widget>
       </item>
      </layout>
