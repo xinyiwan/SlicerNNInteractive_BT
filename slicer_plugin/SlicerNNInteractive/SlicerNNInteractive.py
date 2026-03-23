@@ -1466,26 +1466,25 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
     def updateInfo(self):
 
-        # Clinical info
-        import pandas as pd
-        data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
-        
         # Get pid and scan info
-        scan_dir, patient_ID, exp_id = self.get_path_patientID_scan()
+        scan_dir, patient_ID, _ = self.get_path_patientID_scan()
         if self.directory == None:
             self.directory = scan_dir
-        
+
+        # # Clinical info (requires CSV on local machine)
+        # import pandas as pd
+        # scan_dir, patient_ID, exp_id = self.get_path_patientID_scan()
+        # data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
+        # if patient_ID != '':
+        #     loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
+        #     baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
+        #     self.ui.LocationLabel.text = f'{loc}'
+        #     self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
+        #     self.ui.BaselineLabel.text = f'{baseline_info}'
+
         if patient_ID != '':
-            # Get location info
-            loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
-            baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
-            
-            # Update UI
             self.ui.PID.text = f'{patient_ID}'
             self.ui.PID.styleSheet = "color: green" if self.ui.PID.text != 'None' else "color: Black"
-            self.ui.LocationLabel.text = f'{loc}'
-            self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
-            self.ui.BaselineLabel.text = f'{baseline_info}'
         else:
             print('No image found.')
     
@@ -2067,8 +2066,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             volumeNodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
             if volumeNodes:
                 volumeNode = volumeNodes[-1]
-            # Show this volume node in the segment editor widget
-            self.ui.editor_widget.setSourceVolumeNode(volumeNode)
+            # Only push to the editor widget if a segmentation node is already
+            # set — otherwise Slicer emits "need to set segment editor and
+            # segmentation nodes first" VTK warnings.
+            if volumeNode and self.ui.editor_widget.segmentationNode():
+                self.ui.editor_widget.setSourceVolumeNode(volumeNode)
 
         return volumeNode
 
