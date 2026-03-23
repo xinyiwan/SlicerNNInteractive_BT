@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>388</width>
-    <height>1363</height>
+    <width>437</width>
+    <height>1541</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -611,8 +611,7 @@
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_5">
       <item>
-       <widget class="QTextBrowser" name="textBrowser_2">
-       </widget>
+       <widget class="QTextBrowser" name="textBrowser_2"/>
       </item>
       <item>
        <widget class="QPlainTextEdit" name="plainTextEdit">

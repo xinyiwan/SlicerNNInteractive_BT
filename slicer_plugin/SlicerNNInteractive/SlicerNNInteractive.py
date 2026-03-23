@@ -1537,12 +1537,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     ###############################################################################
 
     def loadSegDirectory(self):
-        """Let the user choose the base directory that contains AI bone segmentations."""
-        seg_dir = qt.QFileDialog.getExistingDirectory(
-            None, "Select AI Segmentation Base Directory", self.seg_directory or ""
-        )
-        if seg_dir:
-            self.seg_directory = seg_dir
+
+        if self.seg_directory:
+            seg_dir = self.seg_directory
             settings = qt.QSettings()
             settings.setValue("SlicerNNInteractive/seg_directory", seg_dir)
             if self.ui.ShowSegCheckBox.isChecked():
