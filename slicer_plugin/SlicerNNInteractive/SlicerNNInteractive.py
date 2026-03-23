@@ -271,45 +271,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Add contour checkbox connection
         self.ui.contourCheckBox.stateChanged.connect(self.on_contour_checkbox_changed)
 
-        # Set HTML content programmatically (avoids XML parser issues on Windows with long lines in .ui)
-        self.ui.textBrowser.setHtml(
-            "<p><span style='font-size:14px; font-weight:600; color:#1e53a3;'>Excellent</span>"
-            "<span style='font-size:14px;'>: The segmentation is perfectly aligned with the target bone and requires no adjustments."
-            " For this score, the segmentation volume should overlap with the bone for </span>"
-            "<span style='font-size:14px; text-decoration:underline;'>at least 95%</span>"
-            "<span style='font-size:14px;'>.</span></p>"
-            "<p><span style='font-size:14px; font-weight:600; color:#fdc030;'>Sufficient</span>"
-            "<span style='font-size:14px;'>: The segmentation is aligned with the target bone, however, could benefit from minor adjustments."
-            " For this score, the segmentation volume should overlap with the bone for </span>"
-            "<span style='font-size:14px; text-decoration:underline;'>at least 75%</span>"
-            "<span style='font-size:14px;'>.</span></p>"
-            "<p><span style='font-size:14px; font-weight:600;'>Insufficient</span>"
-            "<span style='font-size:14px;'>: The segmentation misses parts of the target bone, or parts are overlapping with other tissue,"
-            " therefore major adjustments are required."
-            " For this score, the segmentation volume should overlap with the bone for </span>"
-            "<span style='font-size:14px; text-decoration:underline;'>at least 50%</span>"
-            "<span style='font-size:14px;'>.</span></p>"
-            "<p><span style='font-size:14px; font-weight:600; color:#cd5937;'>Incorrect</span>"
-            "<span style='font-size:14px;'>: the segmentation is not overlapping with the target bone, or missing large areas of the bone."
-            " For this score, the segmentation volume does not overlap with the bones for </span>"
-            "<span style='font-size:14px; text-decoration:underline;'>&lt;50%</span>"
-            "<span style='font-size:14px;'>.</span></p>"
-            "<p><span style='font-size:14px; font-weight:600; font-style:italic; text-decoration:underline;'>No segmentation found</span>"
-            "<span style='font-size:14px;'>: There is no bone segmentation from the folder.</span></p>"
-        )
-        self.ui.textBrowser_2.setHtml(
-            "<p style='font-size:14px;'>1- patella, </p>"
-            "<p style='font-size:14px;'>2- tibia, </p>"
-            "<p style='font-size:14px;'>3- fibula, </p>"
-            "<p style='font-size:14px;'>4- tarsal, </p>"
-            "<p style='font-size:14px;'>5- metatarsal,</p>"
-            "<p style='font-size:14px;'>6- phalanges_feet, </p>"
-            "<p style='font-size:14px;'>7- ulna, </p>"
-            "<p style='font-size:14px;'>8- radius, </p>"
-            "<p style='font-size:14px;'>9- carpal, </p>"
-            "<p style='font-size:14px;'>10- metacarpal,</p>"
-            "<p style='font-size:14px;'>11- phalanges_hand</p>"
-        )
     
     def on_contour_checkbox_changed(self, state):
         """Handle contour checkbox state changes"""
@@ -1703,19 +1664,16 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             res = {
                 'status': 'completed',
                 'timestamp': '',
-                'boneseg_score': '',
                 'notes': ''
             }
-            
+
             # Get values from UI
-            boneseg_score = self.ui.SegScoreBox.currentText
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            notes = self.ui.plainTextEdit.toPlainText()  # For QPlainTextEdit
-            
+            notes = self.ui.plainTextEdit.toPlainText()
+
             # Update result dictionary
             res.update({
                 'timestamp': timestamp,
-                'boneseg_score': boneseg_score,
                 'notes': notes
             })
             
