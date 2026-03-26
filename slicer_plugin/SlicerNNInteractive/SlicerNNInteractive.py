@@ -1365,8 +1365,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             storage_node = first_node.GetStorageNode()
             if storage_node:
                 file_path = storage_node.GetFileName()
-                patient_ID = file_path.split('/')[-3]
-                exp_id = file_path.split('/')[-2]
+                patient_ID = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
+                exp_id = os.path.basename(os.path.dirname(file_path))
 
                 dir_path = os.path.dirname(file_path)
                 
