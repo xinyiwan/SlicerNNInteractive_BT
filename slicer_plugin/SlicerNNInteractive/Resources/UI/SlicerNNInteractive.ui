@@ -435,45 +435,74 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="widget" native="true">
-     <layout class="QVBoxLayout" name="verticalLayout_scan_controls">
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_3">
-        <item>
-         <widget class="QPushButton" name="LoadScanButton">
-          <property name="text">
-           <string>Load scans</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="GetInfoButton">
-          <property name="text">
-           <string>Get Patient Info</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
+    <widget class="QGroupBox" name="gridGroupBox">
+     <layout class="QGridLayout" name="gridLayout">
+      <item row="0" column="0">
+       <widget class="QWidget" name="widget" native="true">
+        <layout class="QVBoxLayout" name="verticalLayout_scan_controls">
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_3">
+           <item>
+            <widget class="QPushButton" name="LoadScanButton">
+             <property name="text">
+              <string>Load scans</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="GetInfoButton">
+             <property name="text">
+              <string>Get Patient Info</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_seg">
+           <item>
+            <widget class="QCheckBox" name="ShowSegCheckBox">
+             <property name="toolTip">
+              <string>Show/hide the AI bone segmentation for the current image</string>
+             </property>
+             <property name="text">
+              <string>Show Bone TotalSeg</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="segSummaryLabel">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </item>
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_seg">
-        <item>
-         <widget class="QCheckBox" name="ShowSegCheckBox">
-          <property name="toolTip">
-           <string>Show/hide the AI bone segmentation for the current image</string>
-          </property>
-          <property name="text">
-           <string>Show Bone TotalSeg</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QLabel" name="segSummaryLabel">
-        <property name="text">
-         <string/>
+      <item row="1" column="0">
+       <widget class="QGroupBox" name="groupBox_3">
+        <property name="font">
+         <font>
+          <underline>true</underline>
+         </font>
         </property>
+        <property name="title">
+         <string>Choose Main Anatomy</string>
+        </property>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QComboBox" name="AnatomyBox">
+           <item>
+            <property name="text">
+             <string>Loading...</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+        </layout>
        </widget>
       </item>
      </layout>
@@ -505,24 +534,6 @@
         <property name="text">
          <string>Redo Segmentation</string>
         </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_3">
-     <property name="title">
-      <string>Choose Main Anatomy</string>
-     </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_2">
-      <item>
-       <widget class="QComboBox" name="AnatomyBox">
-        <item>
-         <property name="text">
-          <string>Loading...</string>
-         </property>
-        </item>
        </widget>
       </item>
      </layout>

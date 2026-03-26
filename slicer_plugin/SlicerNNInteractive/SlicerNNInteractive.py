@@ -113,7 +113,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Add these initialization variables
         self.segmentation_history = []
-        self.directory = None  # Will be set when directory is chosen
+        self.directory = None  # Will be set when directory is chosen (session, MR-xxx)
+        self.base_directory = None  # Set after directory is set (go to the folder level of all subs)
         self._undo_redo_connected = False
         self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
         self.ai_seg_node = None
@@ -249,9 +250,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Restore saved seg directory (fall back to the default project path)
         _default_seg_dir = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
-        savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
-        if savedSegDir and os.path.exists(savedSegDir):
-            self.seg_directory = savedSegDir
+        # savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
+        # if savedSegDir and os.path.exists(savedSegDir):
+        self.seg_directory = _default_seg_dir
 
         # Observe active volume changes to auto-update AI seg
         self.addObserver(
@@ -650,6 +651,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.shortcut_items[shortcut_key] = shortcut
 
     def setup_dataparameters(self):
+        self.base_directory = None
         self.directory = None
         self.seg_directory = None
         self.ai_seg_node = None
@@ -1365,8 +1367,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             storage_node = first_node.GetStorageNode()
             if storage_node:
                 file_path = storage_node.GetFileName()
-                patient_ID = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
-                exp_id = os.path.basename(os.path.dirname(file_path))
+                patient_ID = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(file_path))))
+                exp_id = os.path.basename(os.path.dirname(os.path.dirname(file_path)))
+                print("Patient ID:", patient_ID)
+                print("Session ID", exp_id)
 
                 dir_path = os.path.dirname(file_path)
                 
@@ -1386,6 +1390,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         
         if not self.directory:
             return
+        
+        # Set base dir
+        try:
+            self.base_directory = os.path.dirname(os.path.dirname(self.directory))
+        except Exception:
+            print("No base directory defined, please check if choose the session folder!")
+            pass
 
         # Capture AI seg checkbox state before clearing — the checkbox won't
         # fire its toggled signal if the state doesn't change, so we retrigger
@@ -1419,10 +1430,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Load volume and segmentation files
         for session in sessions:
             folder_name = session.parent.name
-            if 'seg' in str(session).lower():
+            if 'seg' in str(session).lower() and "final" in str(session).lower():
+                continue
                 # Load segmentation but keep hidden
-                seg_node = slicer.util.loadSegmentation(session)
-                seg_node.GetDisplayNode().SetVisibility(False)
+                # seg_node = slicer.util.loadSegmentation(session)
+                # seg_node.GetDisplayNode().SetVisibility(False)
             elif 'Localizer' in str(session) or 'DYN' in str(session):
                 continue
             else:
@@ -1468,8 +1480,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Get pid and scan info
         scan_dir, patient_ID, _ = self.get_path_patientID_scan()
-        if self.directory == None:
-            self.directory = scan_dir
 
         # # Clinical info (requires CSV on local machine)
         # import pandas as pd
@@ -1544,14 +1554,19 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         image_path = Path(storage_node.GetFileName())
         try:
-            rel_path = image_path.parent.relative_to(self.directory)
+            rel_path = image_path.parent.relative_to(self.base_directory)
         except ValueError:
             return None, None
 
         seg_dir = Path(self.seg_directory) / rel_path
+        # print("Seg dir path:", self.seg_directory)
+        # print("Rel path:", rel_path)
+        # print("Img path", image_path)
+        
         seg_file = seg_dir / "segmentations.nii.gz"
         labels_file = seg_dir / "bone_seg_labels.json"
 
+        print("Segmentation is from path:", seg_dir)
         # Build subject-level summary (parent of session = patient/study dir)
         subject_seg_dir = seg_dir.parent
         self._updateSegSummaryLabel(subject_seg_dir)
