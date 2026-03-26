@@ -449,33 +449,45 @@
              </property>
             </widget>
            </item>
-           <item>
-            <widget class="QPushButton" name="GetInfoButton">
-             <property name="text">
-              <string>Get Patient Info</string>
-             </property>
-            </widget>
-           </item>
           </layout>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_seg">
-           <item>
-            <widget class="QCheckBox" name="ShowSegCheckBox">
-             <property name="toolTip">
-              <string>Show/hide the AI bone segmentation for the current image</string>
-             </property>
-             <property name="text">
-              <string>Show Bone TotalSeg</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
+          <widget class="QGroupBox" name="groupBox_4">
+           <property name="title">
+            <string>Add information</string>
+           </property>
+           <layout class="QHBoxLayout" name="horizontalLayout_8">
+            <item>
+             <widget class="QCheckBox" name="ShowSegCheckBox">
+              <property name="toolTip">
+               <string>Show/hide the AI bone segmentation for the current image</string>
+              </property>
+              <property name="text">
+               <string>Show Bone TotalSeg</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="checkBox">
+              <property name="text">
+               <string>Show Patient Info</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="ClinicalInfoLabel">
+           <property name="text">
+            <string>Loading..</string>
+           </property>
+          </widget>
          </item>
          <item>
           <widget class="QLabel" name="segSummaryLabel">
            <property name="text">
-            <string/>
+            <string>Loading...</string>
            </property>
           </widget>
          </item>
@@ -495,11 +507,30 @@
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
           <widget class="QComboBox" name="AnatomyBox">
+           <property name="font">
+            <font>
+             <underline>false</underline>
+            </font>
+           </property>
            <item>
             <property name="text">
              <string>Loading...</string>
             </property>
            </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="SubmitAnoButton">
+           <property name="font">
+            <font>
+             <weight>75</weight>
+             <bold>true</bold>
+             <underline>false</underline>
+            </font>
+           </property>
+           <property name="text">
+            <string>Submit!</string>
+           </property>
           </widget>
          </item>
         </layout>
@@ -533,6 +564,89 @@
        <widget class="QCheckBox" name="RedoButton">
         <property name="text">
          <string>Redo Segmentation</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="DiagnosisBox">
+     <property name="font">
+      <font>
+       <weight>75</weight>
+       <bold>true</bold>
+       <strikeout>false</strikeout>
+       <kerning>true</kerning>
+      </font>
+     </property>
+     <property name="title">
+      <string>Choose Your Diagnosis</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_7">
+      <item>
+       <widget class="QComboBox" name="comboBox_2">
+        <property name="font">
+         <font>
+          <weight>50</weight>
+          <bold>false</bold>
+          <strikeout>false</strikeout>
+          <kerning>true</kerning>
+         </font>
+        </property>
+        <item>
+         <property name="text">
+          <string>BT mimicker</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Benign BT</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Intermediate BT</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Malignant BT</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="comboBox">
+        <property name="font">
+         <font>
+          <weight>50</weight>
+          <bold>false</bold>
+          <strikeout>false</strikeout>
+          <kerning>true</kerning>
+         </font>
+        </property>
+        <item>
+         <property name="text">
+          <string>Very confident</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Median confident</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Not confidnet</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="SubmitDiagButton">
+        <property name="text">
+         <string>Submit!</string>
         </property>
        </widget>
       </item>
