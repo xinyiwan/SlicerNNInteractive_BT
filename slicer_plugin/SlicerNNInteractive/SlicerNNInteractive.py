@@ -240,7 +240,20 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # added connection for choosing scans
         self.ui.LoadScanButton.clicked.connect(self.loadScans)
-        self.ui.GetInfoButton.clicked.connect(self.updateInfo)
+
+        # PatientInfoBox checkbox shows/hides ClinicalInfoLabel
+        self.ui.ClinicalInfoLabel.setVisible(False)
+        self.ui.PatientInfoBox.toggled.connect(self.onPatientInfoToggled)
+
+        # segSummaryLabel only visible when ShowSegCheckBox is checked
+        self.ui.segSummaryLabel.setVisible(False)
+
+        # Anatomy submit button
+        self.ui.SubmitAnoButton.clicked.connect(self.on_submit_anatomy)
+
+        # DiagnosisBox hidden until review panel is shown
+        self.ui.DiagnosisBox.setVisible(False)
+        self.ui.SubmitDiagButton.clicked.connect(self.on_submit_diagnosis)
 
         # added connection for reviewer panel
         self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
@@ -1456,13 +1469,15 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         if has_real_operations:
             # This is a review session - don't record in original history
-            self.ui.ReviewPanel.setVisible(True)  # Show review options
+            self.ui.ReviewPanel.setVisible(True)
+            self.ui.DiagnosisBox.setVisible(True)
             final_seg_path, _ = self.check_existing_history()
             slicer.util.loadSegmentation(final_seg_path)
             slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
         else:
             # First-time segmentation (no history, or history only contains load entries)
             self.ui.ReviewPanel.setVisible(False)
+            self.ui.DiagnosisBox.setVisible(False)
             self.segmentation_history = [self.pending_load_entry]
             self.save_history_file()
             self.pending_load_entry = None
@@ -1498,6 +1513,94 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         else:
             print('No image found.')
     
+    def onPatientInfoToggled(self, checked):
+        """Show/hide ClinicalInfoLabel based on PatientInfoBox checkbox state."""
+        # Only show if we actually have info loaded (non-empty label text)
+        has_info = bool(self.ui.ClinicalInfoLabel.text.strip())
+        self.ui.ClinicalInfoLabel.setVisible(checked and has_info)
+
+    def _get_assessment_json_path(self):
+        """Return path to the assessment JSON in the active review directory (or session dir)."""
+        if not self.directory:
+            return None
+        if self.ui.CorrectionButton.isChecked():
+            folder = os.path.join(self.directory, "review_correction")
+        elif self.ui.RedoButton.isChecked():
+            folder = os.path.join(self.directory, "review_redo")
+        else:
+            folder = self.directory
+        os.makedirs(folder, exist_ok=True)
+        return os.path.join(folder, "assessment.json")
+
+    def _load_assessment_json(self, path):
+        """Load existing assessment JSON or return empty dict."""
+        if path and os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_assessment_json(self, path, data):
+        """Save assessment data to JSON file."""
+        try:
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=4)
+            return True
+        except Exception as e:
+            debug_print(f"Error saving assessment JSON: {e}")
+            return False
+
+    def on_submit_anatomy(self):
+        """Save tumor location from combo box or custom text edit to assessment JSON."""
+        if not self.directory:
+            slicer.util.warningDisplay("Please load scans first.", windowTitle="No Directory")
+            return
+
+        custom_text = self.ui.customAnatomyEdit.text.strip()
+        if custom_text:
+            location = custom_text
+        else:
+            location = self.ui.AnatomyBox.currentText.strip()
+
+        if not location or location == "Loading...":
+            slicer.util.warningDisplay("Please select or enter an anatomy location.", windowTitle="No Anatomy")
+            return
+
+        path = self._get_assessment_json_path()
+        data = self._load_assessment_json(path)
+        data['tumor_location'] = location
+        data['tumor_location_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if self._save_assessment_json(path, data):
+            slicer.util.infoDisplay(f"Anatomy location saved: {location}", windowTitle="Saved")
+        else:
+            slicer.util.errorDisplay("Failed to save anatomy location.", windowTitle="Save Error")
+
+    def on_submit_diagnosis(self):
+        """Save tumor type and confidence level to assessment JSON."""
+        if not self.directory:
+            slicer.util.warningDisplay("Please load scans first.", windowTitle="No Directory")
+            return
+
+        tumor_type = self.ui.comboBox_2.currentText.strip()
+        confidence = self.ui.comboBox.currentText.strip()
+
+        path = self._get_assessment_json_path()
+        data = self._load_assessment_json(path)
+        data['diagnosis_tumor_type'] = tumor_type
+        data['diagnosis_confidence'] = confidence
+        data['diagnosis_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if self._save_assessment_json(path, data):
+            slicer.util.infoDisplay(
+                f"Diagnosis saved:\n  Type: {tumor_type}\n  Confidence: {confidence}",
+                windowTitle="Saved"
+            )
+        else:
+            slicer.util.errorDisplay("Failed to save diagnosis.", windowTitle="Save Error")
+
     def clearLoadedData(self):
         """Remove all volumes and segmentations from the scene"""
         # Detach editor widgets before removing nodes to prevent Slicer from
@@ -1531,8 +1634,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """Called when the Show AI Bone Seg checkbox is toggled."""
         if checked:
             self.updateAISegmentation()
+            self.ui.segSummaryLabel.setVisible(True)
         else:
             self.hideAISegmentation()
+            self.ui.segSummaryLabel.setVisible(False)
 
     def getAISegPath(self):
         """

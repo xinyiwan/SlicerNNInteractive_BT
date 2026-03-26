@@ -504,32 +504,43 @@
         <property name="title">
          <string>Choose Main Anatomy</string>
         </property>
-        <layout class="QHBoxLayout" name="horizontalLayout_2">
+        <layout class="QVBoxLayout" name="verticalLayout_anatomy">
          <item>
-          <widget class="QComboBox" name="AnatomyBox">
-           <property name="font">
-            <font>
-             <underline>false</underline>
-            </font>
-           </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_2">
            <item>
-            <property name="text">
-             <string>Loading...</string>
-            </property>
+            <widget class="QComboBox" name="AnatomyBox">
+             <property name="font">
+              <font>
+               <underline>false</underline>
+              </font>
+             </property>
+             <item>
+              <property name="text">
+               <string>Loading...</string>
+              </property>
+             </item>
+            </widget>
            </item>
-          </widget>
+           <item>
+            <widget class="QPushButton" name="SubmitAnoButton">
+             <property name="font">
+              <font>
+               <weight>75</weight>
+               <bold>true</bold>
+               <underline>false</underline>
+              </font>
+             </property>
+             <property name="text">
+              <string>Submit!</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
          <item>
-          <widget class="QPushButton" name="SubmitAnoButton">
-           <property name="font">
-            <font>
-             <weight>75</weight>
-             <bold>true</bold>
-             <underline>false</underline>
-            </font>
-           </property>
-           <property name="text">
-            <string>Submit!</string>
+          <widget class="QLineEdit" name="customAnatomyEdit">
+           <property name="placeholderText">
+            <string>Or type custom anatomy location here...</string>
            </property>
           </widget>
          </item>
