@@ -263,7 +263,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
 
         # Restore saved seg directory (fall back to the default project path)
-        _default_seg_dir = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
+        _default_seg_dir = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_totalseg")
         # savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
         # if savedSegDir and os.path.exists(savedSegDir):
         self.seg_directory = _default_seg_dir
@@ -355,10 +355,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
         seen_orientations = {ref_orientation}
         target_volumes = []  # list of (volume_node, orientation_label)
+        print("TEST num of all v:", all_volumes)
+        
         for vol in all_volumes:
             if vol.GetID() == ref_volume.GetID():
                 continue
             orient = self.get_volume_orientation(vol)
+            print("TEST vol:", vol)
+            print("TEST ori:", orient)
             if orient not in seen_orientations:
                 seen_orientations.add(orient)
                 target_volumes.append((vol, orient))
@@ -1803,19 +1807,21 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             return None, None
 
         seg_dir = Path(self.seg_directory) / rel_path
-        # print("Seg dir path:", self.seg_directory)
-        # print("Rel path:", rel_path)
-        # print("Img path", image_path)
+        print("Seg dir path:", self.seg_directory)
+        print("Rel path:", rel_path)
+        print("Img path", image_path)
         
         seg_file = seg_dir / "segmentations.nii.gz"
         labels_file = seg_dir / "bone_seg_labels.json"
 
-        print("Segmentation is from path:", seg_dir)
+        print("Segmentation is from dir:", seg_dir)
+        print("Segmentation is from path:", seg_file)
         # Build subject-level summary (parent of session = patient/study dir)
         subject_seg_dir = seg_dir.parent
         self._updateSegSummaryLabel(subject_seg_dir)
 
         if not seg_file.exists():
+            print("test")
             return None, None
 
         return str(seg_file), str(labels_file) if labels_file.exists() else None
