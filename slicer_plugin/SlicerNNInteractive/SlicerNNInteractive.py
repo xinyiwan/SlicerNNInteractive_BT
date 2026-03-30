@@ -316,19 +316,23 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         
         
     def get_volume_orientation(self, volume_node):
-        """Return 'axial', 'coronal', or 'sagittal' based on the volume's slice direction."""
-        ijk_to_ras = vtk.vtkMatrix4x4()
-        volume_node.GetIJKToRASMatrix(ijk_to_ras)
-        # k-axis (3rd column) is the slice/through-plane direction in RAS
-        k_dir = [abs(ijk_to_ras.GetElement(r, 2)) for r in range(3)]
-        dominant = k_dir.index(max(k_dir))
-        # RAS axes: 0=R/L, 1=A/P, 2=S/I
-        if dominant == 2:
-            return "axial"
-        elif dominant == 1:
-            return "coronal"
-        else:
-            return "sagittal"
+        """Return 'axial', 'coronal', or 'sagittal' for a volume node.
+
+        The through-plane axis is the IJK axis with the largest voxel spacing
+        (thickest slices / fewest slices).  We then look at which RAS direction
+        that axis aligns with to decide the anatomical plane.
+        RAS convention: 0=R/L → sagittal, 1=A/P → coronal, 2=S/I → axial.
+        """
+        spacing = volume_node.GetSpacing()  # (si, sj, sk)
+        through_plane_axis = max(range(3), key=lambda i: spacing[i])
+
+        dirs = vtk.vtkMatrix4x4()
+        volume_node.GetIJKToRASDirections(dirs)
+        # Column `through_plane_axis` gives the RAS direction of that IJK axis
+        tp_ras = [abs(dirs.GetElement(r, through_plane_axis)) for r in range(3)]
+        dominant = max(range(3), key=lambda i: tp_ras[i])
+
+        return ["sagittal", "coronal", "axial"][dominant]
 
     def on_duplicate_to_orientations(self):
         """Resample the current segmentation into one target volume per distinct non-reference orientation."""
