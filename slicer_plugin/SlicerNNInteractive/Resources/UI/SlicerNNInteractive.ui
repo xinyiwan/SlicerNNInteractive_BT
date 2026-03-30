@@ -679,6 +679,20 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="pbGaussianSmooth">
+     <property name="text">
+      <string>Gaussian smooth visible segments (σ=1mm)</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="pbFinalRegistration">
+     <property name="text">
+      <string>Register segmentations to all images</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="segmentationGroup">
      <property name="title">
       <string>Segment Editor</string>

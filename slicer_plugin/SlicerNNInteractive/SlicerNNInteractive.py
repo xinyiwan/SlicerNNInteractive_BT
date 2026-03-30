@@ -119,6 +119,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
         self.ai_seg_node = None
         self._last_volume_id = None
+        # Maps orientation label → (seg_node, ref_vol_node) populated by Duplicate button
+        self.orientation_seg_map = {}
 
     def setup(self):
         """
@@ -289,6 +291,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Duplicate segmentation to other orientations
         self.ui.pbDuplicateToOrientations.clicked.connect(self.on_duplicate_to_orientations)
 
+        # Gaussian smoothing of visible segments
+        self.ui.pbGaussianSmooth.clicked.connect(self.on_gaussian_smooth_clicked)
+
+        # Register segmentations to all images
+        self.ui.pbFinalRegistration.clicked.connect(self.on_final_registration_clicked)
+
     
     def on_contour_checkbox_changed(self, state):
         """Handle contour checkbox state changes"""
@@ -353,18 +361,17 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         ref_orientation = self.get_volume_orientation(ref_volume)
 
+        # Reset the map and seed with the original segmentation
+        self.orientation_seg_map = {ref_orientation: (seg_node, ref_volume)}
+
         # Collect one representative volume per distinct orientation (excluding reference)
         all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
         seen_orientations = {ref_orientation}
         target_volumes = []  # list of (volume_node, orientation_label)
-        print("TEST num of all v:", all_volumes)
-        
         for vol in all_volumes:
             if vol.GetID() == ref_volume.GetID():
                 continue
             orient = self.get_volume_orientation(vol)
-            print("TEST vol:", vol)
-            print("TEST ori:", orient)
             if orient not in seen_orientations:
                 seen_orientations.add(orient)
                 target_volumes.append((vol, orient))
@@ -426,6 +433,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
                     new_labelmap, new_seg_node
                 )
+                self.orientation_seg_map[orient] = (new_seg_node, target_vol)
             finally:
                 slicer.mrmlScene.RemoveNode(new_labelmap)
 
@@ -434,6 +442,205 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         slicer.util.infoDisplay(
             f"Duplicated segmentation to: {', '.join(created)}."
         )
+
+    # ------------------------------------------------------------------
+    # Gaussian smoothing
+    # ------------------------------------------------------------------
+
+    def on_gaussian_smooth_clicked(self):
+        """Apply Gaussian smoothing (σ=1 mm) to every visible segment in-place."""
+        import SimpleITK as sitk
+        import sitkUtils
+
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            slicer.util.warningDisplay("No segmentation found.")
+            return
+
+        volume_node = self.get_volume_node()
+        segmentation = seg_node.GetSegmentation()
+        display_node = seg_node.GetDisplayNode()
+        sigma_mm = 1.0
+
+        for i in range(segmentation.GetNumberOfSegments()):
+            seg_id = segmentation.GetNthSegmentID(i)
+            if display_node and not display_node.GetSegmentVisibility(seg_id):
+                continue
+
+            segment = segmentation.GetSegment(seg_id)
+            seg_name = segment.GetName()
+            seg_color = list(segment.GetColor())
+
+            # Export single segment to a temporary labelmap
+            tmp_lm = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            try:
+                seg_ids_vtk = vtk.vtkStringArray()
+                seg_ids_vtk.InsertNextValue(seg_id)
+                slicer.modules.segmentations.logic().ExportSegmentsToLabelmapNode(
+                    seg_node, seg_ids_vtk, tmp_lm, volume_node
+                )
+
+                sitk_img = sitkUtils.PullVolumeFromSlicer(tmp_lm)
+                sitk_float = sitk.Cast(sitk_img, sitk.sitkFloat32)
+                smoothed = sitk.SmoothingRecursiveGaussian(sitk_float, sigma=sigma_mm)
+                binary = sitk.BinaryThreshold(
+                    smoothed, lowerThreshold=0.5, upperThreshold=float("inf"),
+                    insideValue=1, outsideValue=0
+                )
+                binary = sitk.Cast(binary, sitk.sitkUInt8)
+                sitkUtils.PushVolumeToSlicer(binary, tmp_lm)
+
+                # Replace the old segment: remove it, import the smoothed labelmap,
+                # then restore name and colour on the newly created segment.
+                segmentation.RemoveSegment(seg_id)
+                slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
+                    tmp_lm, seg_node
+                )
+                new_id = segmentation.GetNthSegmentID(segmentation.GetNumberOfSegments() - 1)
+                new_seg = segmentation.GetSegment(new_id)
+                if new_seg:
+                    new_seg.SetName(seg_name)
+                    new_seg.SetColor(*seg_color)
+            finally:
+                slicer.mrmlScene.RemoveNode(tmp_lm)
+
+    # ------------------------------------------------------------------
+    # Final registration — resample orientation segmentations to every image
+    # ------------------------------------------------------------------
+
+    def on_final_registration_clicked(self):
+        """Resample each orientation segmentation to every loaded image of that orientation.
+
+        After this call, every volume node has a corresponding segmentation node
+        named  <volume_name>_seg  in the scene (isotropic spacing).
+        The mapping is stored in  self.registered_seg_nodes  for later saving.
+        """
+        import SimpleITK as sitk
+        import sitkUtils
+
+        if not self.orientation_seg_map:
+            slicer.util.warningDisplay(
+                "No orientation segmentation map found.\n"
+                "Please click 'Duplicate segmentation to other orientations' first."
+            )
+            return
+
+        all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
+
+        # ref_vol IDs already represented by the duplicate step
+        ref_vol_ids = {v.GetID() for _, (_, v) in self.orientation_seg_map.items()}
+
+        self.registered_seg_nodes = []  # [(seg_node, vol_node)]
+
+        # Record the main orientation segmentations themselves
+        for orient, (seg_node, ref_vol) in self.orientation_seg_map.items():
+            self.registered_seg_nodes.append((seg_node, ref_vol))
+
+        for vol in all_volumes:
+            if vol.GetID() in ref_vol_ids:
+                continue  # already represented by a main segmentation
+
+            orient = self.get_volume_orientation(vol)
+            if orient not in self.orientation_seg_map:
+                continue  # no segmentation for this orientation
+
+            src_seg_node, _ = self.orientation_seg_map[orient]
+
+            # Export source segmentation to a temporary labelmap
+            tmp_src = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            try:
+                slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                    src_seg_node, tmp_src, _
+                )
+                sitk_src = sitkUtils.PullVolumeFromSlicer(tmp_src)
+            finally:
+                slicer.mrmlScene.RemoveNode(tmp_src)
+
+            # Build isotropic target geometry from this volume
+            sitk_vol = sitkUtils.PullVolumeFromSlicer(vol)
+            vol_spacing = sitk_vol.GetSpacing()
+            min_sp = min(vol_spacing)
+            iso_spacing = [min_sp, min_sp, min_sp]
+            orig_size = sitk_vol.GetSize()
+            new_size = [int(round(orig_size[i] * vol_spacing[i] / min_sp)) for i in range(3)]
+
+            resampler = sitk.ResampleImageFilter()
+            resampler.SetOutputSpacing(iso_spacing)
+            resampler.SetSize(new_size)
+            resampler.SetOutputDirection(sitk_vol.GetDirection())
+            resampler.SetOutputOrigin(sitk_vol.GetOrigin())
+            resampler.SetTransform(sitk.Transform())
+            resampler.SetDefaultPixelValue(0)
+            resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+            resampled = resampler.Execute(sitk_src)
+
+            tmp_dst = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            try:
+                sitkUtils.PushVolumeToSlicer(resampled, tmp_dst)
+                new_seg = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+                new_seg.SetName(f"{vol.GetName()}_seg")
+                new_seg.SetReferenceImageGeometryParameterFromVolumeNode(vol)
+                new_seg.CreateDefaultDisplayNodes()
+                slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
+                    tmp_dst, new_seg
+                )
+            finally:
+                slicer.mrmlScene.RemoveNode(tmp_dst)
+
+            self.registered_seg_nodes.append((new_seg, vol))
+
+        n = len(self.registered_seg_nodes)
+        slicer.util.infoDisplay(
+            f"Registration complete: {n} segmentation(s) now cover all loaded images."
+        )
+
+    # ------------------------------------------------------------------
+    # Per-image save helper (called from on_final_save)
+    # ------------------------------------------------------------------
+
+    def save_registered_segs_to_image_folders(self):
+        """Save every registered segmentation next to its source image.
+
+        Each file is saved at the native spacing/shape of the corresponding
+        volume (non-isotropic) as  <image_folder>/<volume_name>_seg.nii.gz.
+        """
+        import SimpleITK as sitk
+        import sitkUtils
+
+        if not hasattr(self, "registered_seg_nodes") or not self.registered_seg_nodes:
+            return
+
+        saved = []
+        for seg_node, vol_node in self.registered_seg_nodes:
+            # Determine output path from the volume's storage node
+            storage = vol_node.GetStorageNode()
+            if storage and storage.GetFileName():
+                vol_dir = os.path.dirname(storage.GetFileName())
+            elif self.directory:
+                vol_dir = self.directory
+            else:
+                continue
+
+            out_path = os.path.join(vol_dir, f"{vol_node.GetName()}_seg.nii.gz")
+
+            # Export to labelmap at reference volume geometry (native spacing)
+            tmp_lm = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            try:
+                slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                    seg_node, tmp_lm, vol_node
+                )
+                sitk_lm = sitkUtils.PullVolumeFromSlicer(tmp_lm)
+                sitk.WriteImage(sitk_lm, out_path)
+                saved.append(out_path)
+            except Exception as e:
+                print(f"Failed to save {out_path}: {e}")
+            finally:
+                slicer.mrmlScene.RemoveNode(tmp_lm)
+
+        if saved:
+            print(f"Saved {len(saved)} per-image segmentation(s):")
+            for p in saved:
+                print(f"  {p}")
 
     def setup_auto_save(self):
         """Initialize auto-save functionality"""
@@ -654,17 +861,41 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         qt.QTimer.singleShot(100, lambda: self.save_segmentation_nii("redo"))
 
     def on_final_save(self):
-        """Handle final save button click"""
+        """Handle final save button click.
+
+        Two-step save:
+          1. Save all main isotropic orientation segmentations to history.
+          2. Save every registered segmentation to its image folder at the
+             native (non-isotropic) spacing of the corresponding volume.
+        """
         if not self.directory:
             slicer.util.warningDisplay("Please set a directory first", windowTitle="Save Error")
             return
-        
-        # Save current segmentation at isotropic spacing
-        result = self.save_segmentation_nii("FINAL", is_final=True, isotropic=True)
-        
+
+        # --- Step 1: save main isotropic segmentations to history ---
+        # If orientation_seg_map is populated, save each orientation's segmentation.
+        # Otherwise fall back to the single active segmentation (original workflow).
+        if self.orientation_seg_map:
+            saved_results = []
+            original_vol = self.get_volume_node()
+            original_seg = self.get_segmentation_node()
+            for orient, (seg_node, ref_vol) in self.orientation_seg_map.items():
+                # Temporarily point the editor at this seg/volume pair so that
+                # save_segmentation_nii picks up the right nodes.
+                self.ui.editor_widget.setSegmentationNode(seg_node)
+                self.ui.editor_widget.setSourceVolumeNode(ref_vol)
+                r = self.save_segmentation_nii(f"FINAL_{orient}", is_final=True, isotropic=True)
+                if r:
+                    saved_results.append(r)
+            # Restore original editor state
+            self.ui.editor_widget.setSegmentationNode(original_seg)
+            self.ui.editor_widget.setSourceVolumeNode(original_vol)
+            result = saved_results[0] if saved_results else None
+        else:
+            result = self.save_segmentation_nii("FINAL", is_final=True, isotropic=True)
+
         if result:
             if self.ui.CorrectionButton.isChecked():
-                # Add completion entry to correction history
                 completion_entry = {
                     'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
                     'action': "review_correction_complete",
@@ -674,7 +905,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 self.save_review_history("correction", completion_entry)
                 message = "Final corrected segmentation saved"
             elif self.ui.RedoButton.isChecked():
-                # Add completion entry to redo history
                 completion_entry = {
                     'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
                     'action': "review_redo_complete",
@@ -684,10 +914,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 self.save_review_history("redo", completion_entry)
                 message = "Final re-segmentation saved"
             else:
-                # Original segmentation workflow
                 self.update_history_as_final(result)
                 message = "Final segmentation saved"
-            
+
+            # --- Step 2: save per-image segmentations to image folders ---
+            self.save_registered_segs_to_image_folders()
+
             slicer.util.infoDisplay(f"{message}:\n{result}", windowTitle="Save Successful")
         else:
             slicer.util.errorDisplay("Failed to save final segmentation", windowTitle="Save Error")
