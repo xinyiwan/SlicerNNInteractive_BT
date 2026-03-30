@@ -326,10 +326,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         spacing = volume_node.GetSpacing()  # (si, sj, sk)
         through_plane_axis = max(range(3), key=lambda i: spacing[i])
 
-        dirs = vtk.vtkMatrix4x4()
-        volume_node.GetIJKToRASDirections(dirs)
+        # GetIJKToRASMatrix (4x4) accepts vtkMatrix4x4; includes spacing scale but
+        # abs + argmax are unaffected since spacing is always positive.
+        mat = vtk.vtkMatrix4x4()
+        volume_node.GetIJKToRASMatrix(mat)
         # Column `through_plane_axis` gives the RAS direction of that IJK axis
-        tp_ras = [abs(dirs.GetElement(r, through_plane_axis)) for r in range(3)]
+        tp_ras = [abs(mat.GetElement(r, through_plane_axis)) for r in range(3)]
         dominant = max(range(3), key=lambda i: tp_ras[i])
 
         return ["sagittal", "coronal", "axial"][dominant]
@@ -417,11 +419,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 sitkUtils.PushVolumeToSlicer(resampled, new_labelmap)
                 new_seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
                 new_seg_node.SetName(f"{seg_node.GetName()}_{orient}")
+                # Set reference geometry BEFORE import so Slicer doesn't try to
+                # deserialize an empty geometry string during import.
+                new_seg_node.SetReferenceImageGeometryParameterFromVolumeNode(target_vol)
+                new_seg_node.CreateDefaultDisplayNodes()
                 slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
                     new_labelmap, new_seg_node
                 )
-                new_seg_node.SetReferenceImageGeometryParameterFromVolumeNode(target_vol)
-                new_seg_node.CreateDefaultDisplayNodes()
             finally:
                 slicer.mrmlScene.RemoveNode(new_labelmap)
 
