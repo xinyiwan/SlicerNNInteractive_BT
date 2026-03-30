@@ -527,46 +527,32 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
 
-        # ref_vol IDs already represented by the duplicate step
-        ref_vol_ids = {v.GetID() for _, (_, v) in self.orientation_seg_map.items()}
-
         self.registered_seg_nodes = []  # [(seg_node, vol_node)]
 
-        # Record the main orientation segmentations themselves
-        for orient, (seg_node, ref_vol) in self.orientation_seg_map.items():
-            self.registered_seg_nodes.append((seg_node, ref_vol))
-
         for vol in all_volumes:
-            if vol.GetID() in ref_vol_ids:
-                continue  # already represented by a main segmentation
-
             orient = self.get_volume_orientation(vol)
             if orient not in self.orientation_seg_map:
                 continue  # no segmentation for this orientation
 
-            src_seg_node, _ = self.orientation_seg_map[orient]
+            src_seg_node, src_ref_vol = self.orientation_seg_map[orient]
 
-            # Export source segmentation to a temporary labelmap
+            # Export source segmentation to a temporary labelmap in the
+            # orientation segmentation's reference space.
             tmp_src = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
             try:
                 slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
-                    src_seg_node, tmp_src, _
+                    src_seg_node, tmp_src, src_ref_vol
                 )
                 sitk_src = sitkUtils.PullVolumeFromSlicer(tmp_src)
             finally:
                 slicer.mrmlScene.RemoveNode(tmp_src)
 
-            # Build isotropic target geometry from this volume
+            # Resample to the native spacing/size of the target volume
             sitk_vol = sitkUtils.PullVolumeFromSlicer(vol)
-            vol_spacing = sitk_vol.GetSpacing()
-            min_sp = min(vol_spacing)
-            iso_spacing = [min_sp, min_sp, min_sp]
-            orig_size = sitk_vol.GetSize()
-            new_size = [int(round(orig_size[i] * vol_spacing[i] / min_sp)) for i in range(3)]
 
             resampler = sitk.ResampleImageFilter()
-            resampler.SetOutputSpacing(iso_spacing)
-            resampler.SetSize(new_size)
+            resampler.SetOutputSpacing(sitk_vol.GetSpacing())
+            resampler.SetSize(sitk_vol.GetSize())
             resampler.SetOutputDirection(sitk_vol.GetDirection())
             resampler.SetOutputOrigin(sitk_vol.GetOrigin())
             resampler.SetTransform(sitk.Transform())
@@ -599,31 +585,31 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     # ------------------------------------------------------------------
 
     def save_registered_segs_to_image_folders(self):
-        """Save every registered segmentation next to its source image.
+        """Save every registered segmentation to segmentation_history/segs/.
 
-        Each file is saved at the native spacing/shape of the corresponding
-        volume (non-isotropic) as  <image_folder>/<volume_name>_seg.nii.gz.
+        Each <vol_name>_seg node was already resampled to the native spacing of
+        its reference volume during registration, so we just export it directly.
+        Files are named <volume_name>_seg.nii.gz.
         """
         import SimpleITK as sitk
         import sitkUtils
+        import re
 
         if not hasattr(self, "registered_seg_nodes") or not self.registered_seg_nodes:
             return
 
+        if not self.directory:
+            print("No session directory set; cannot save registered segmentations.")
+            return
+
+        segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
+        os.makedirs(segs_dir, exist_ok=True)
+
         saved = []
         for seg_node, vol_node in self.registered_seg_nodes:
-            # Determine output path from the volume's storage node
-            storage = vol_node.GetStorageNode()
-            if storage and storage.GetFileName():
-                vol_dir = os.path.dirname(storage.GetFileName())
-            elif self.directory:
-                vol_dir = self.directory
-            else:
-                continue
+            vol_name_clean = re.sub(r'[^a-zA-Z0-9_-]', '_', vol_node.GetName())
+            out_path = os.path.join(segs_dir, f"{vol_name_clean}_seg.nii.gz")
 
-            out_path = os.path.join(vol_dir, f"{vol_node.GetName()}_seg.nii.gz")
-
-            # Export to labelmap at reference volume geometry (native spacing)
             tmp_lm = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
             try:
                 slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
@@ -638,7 +624,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 slicer.mrmlScene.RemoveNode(tmp_lm)
 
         if saved:
-            print(f"Saved {len(saved)} per-image segmentation(s):")
+            print(f"Saved {len(saved)} segmentation(s) to {segs_dir}:")
             for p in saved:
                 print(f"  {p}")
 
