@@ -672,6 +672,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="pbDuplicateToOrientations">
+     <property name="text">
+      <string>Duplicate segmentation to other orientations</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="segmentationGroup">
      <property name="title">
       <string>Segment Editor</string>

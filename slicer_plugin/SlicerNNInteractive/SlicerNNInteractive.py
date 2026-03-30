@@ -251,8 +251,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Anatomy submit button
         self.ui.SubmitAnoButton.clicked.connect(self.on_submit_anatomy)
 
-        # DiagnosisBox hidden until review panel is shown
+        # DiagnosisBox and anatomy panel hidden until review panel is shown
         self.ui.DiagnosisBox.setVisible(False)
+        self.ui.groupBox_3.setVisible(False)
         self.ui.SubmitDiagButton.clicked.connect(self.on_submit_diagnosis)
 
         # added connection for reviewer panel
@@ -285,6 +286,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Add contour checkbox connection
         self.ui.contourCheckBox.stateChanged.connect(self.on_contour_checkbox_changed)
 
+        # Duplicate segmentation to other orientations
+        self.ui.pbDuplicateToOrientations.clicked.connect(self.on_duplicate_to_orientations)
+
     
     def on_contour_checkbox_changed(self, state):
         """Handle contour checkbox state changes"""
@@ -311,6 +315,114 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                     segment.SetColor(1.0, 0.0, 0.0)
         
         
+    def get_volume_orientation(self, volume_node):
+        """Return 'axial', 'coronal', or 'sagittal' based on the volume's slice direction."""
+        ijk_to_ras = vtk.vtkMatrix4x4()
+        volume_node.GetIJKToRASMatrix(ijk_to_ras)
+        # k-axis (3rd column) is the slice/through-plane direction in RAS
+        k_dir = [abs(ijk_to_ras.GetElement(r, 2)) for r in range(3)]
+        dominant = k_dir.index(max(k_dir))
+        # RAS axes: 0=R/L, 1=A/P, 2=S/I
+        if dominant == 2:
+            return "axial"
+        elif dominant == 1:
+            return "coronal"
+        else:
+            return "sagittal"
+
+    def on_duplicate_to_orientations(self):
+        """Resample the current segmentation into one target volume per distinct non-reference orientation."""
+        import SimpleITK as sitk
+        import sitkUtils
+
+        seg_node = self.get_segmentation_node()
+        if not seg_node:
+            slicer.util.warningDisplay("No segmentation found to duplicate.")
+            return
+
+        ref_volume = self.get_volume_node()
+        if not ref_volume:
+            slicer.util.warningDisplay("No reference volume found.")
+            return
+
+        ref_orientation = self.get_volume_orientation(ref_volume)
+
+        # Collect one representative volume per distinct orientation (excluding reference)
+        all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
+        seen_orientations = {ref_orientation}
+        target_volumes = []  # list of (volume_node, orientation_label)
+        for vol in all_volumes:
+            if vol.GetID() == ref_volume.GetID():
+                continue
+            orient = self.get_volume_orientation(vol)
+            if orient not in seen_orientations:
+                seen_orientations.add(orient)
+                target_volumes.append((vol, orient))
+
+        if not target_volumes:
+            slicer.util.warningDisplay(
+                "No volumes with a different orientation were found.\n"
+                "Load axial or coronal volumes before duplicating."
+            )
+            return
+
+        # Export current segmentation to a temporary labelmap in reference volume space
+        tmp_labelmap = slicer.mrmlScene.AddNewNodeByClass(
+            "vtkMRMLLabelMapVolumeNode", "__tmp_dup_labelmap__"
+        )
+        try:
+            slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                seg_node, tmp_labelmap, ref_volume
+            )
+            sitk_seg = sitkUtils.PullVolumeFromSlicer(tmp_labelmap)
+        finally:
+            slicer.mrmlScene.RemoveNode(tmp_labelmap)
+
+        created = []
+        for target_vol, orient in target_volumes:
+            # Determine isotropic spacing from the target volume
+            sitk_target = sitkUtils.PullVolumeFromSlicer(target_vol)
+            target_spacing = sitk_target.GetSpacing()
+            min_sp = min(target_spacing)
+            iso_spacing = [min_sp, min_sp, min_sp]
+            orig_size = sitk_target.GetSize()
+            new_size = [
+                int(round(orig_size[i] * target_spacing[i] / min_sp))
+                for i in range(3)
+            ]
+
+            resampler = sitk.ResampleImageFilter()
+            resampler.SetOutputSpacing(iso_spacing)
+            resampler.SetSize(new_size)
+            resampler.SetOutputDirection(sitk_target.GetDirection())
+            resampler.SetOutputOrigin(sitk_target.GetOrigin())
+            resampler.SetTransform(sitk.Transform())
+            resampler.SetDefaultPixelValue(0)
+            resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+            resampled = resampler.Execute(sitk_seg)
+
+            # Import resampled labelmap as a new segmentation node
+            new_labelmap = slicer.mrmlScene.AddNewNodeByClass(
+                "vtkMRMLLabelMapVolumeNode", f"__tmp_dup_{orient}__"
+            )
+            try:
+                sitkUtils.PushVolumeToSlicer(resampled, new_labelmap)
+                new_seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+                new_seg_node.SetName(f"{seg_node.GetName()}_{orient}")
+                slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
+                    new_labelmap, new_seg_node
+                )
+                new_seg_node.SetReferenceImageGeometryParameterFromVolumeNode(target_vol)
+                new_seg_node.CreateDefaultDisplayNodes()
+            finally:
+                slicer.mrmlScene.RemoveNode(new_labelmap)
+
+            created.append(orient)
+
+        slicer.util.infoDisplay(
+            f"Duplicated segmentation to: {', '.join(created)}."
+        )
+
     def setup_auto_save(self):
         """Initialize auto-save functionality"""
         
@@ -328,7 +440,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         if redo_button:
             redo_button.clicked.connect(self.on_redo_action)
     
-    def save_segmentation_nii(self, action_type, prompt_type=None, is_final=False):
+    def save_segmentation_nii(self, action_type, prompt_type=None, is_final=False, isotropic=False):
         """Save current segmentation as NIfTI.gz"""
         if not self.directory:
             return None
@@ -368,22 +480,43 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         
         # Create temporary labelmap node
         labelmap_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+        storage_node = None
         try:
-            # Export to labelmap
+            # Export to labelmap using reference volume geometry
             slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
                 seg_node,
                 labelmap_node,
                 self.get_volume_node()
             )
 
-            # Create storage node and configure it
-            storage_node = labelmap_node.CreateDefaultStorageNode()
-            slicer.mrmlScene.AddNode(storage_node)
-            storage_node.SetFileName(filepath)
+            if isotropic:
+                # Resample to isotropic spacing (min of original spacings) using SimpleITK
+                import SimpleITK as sitk
+                import sitkUtils
+                sitk_image = sitkUtils.PullVolumeFromSlicer(labelmap_node)
+                orig_spacing = sitk_image.GetSpacing()
+                min_sp = min(orig_spacing)
+                new_spacing = [min_sp] * 3
+                orig_size = sitk_image.GetSize()
+                new_size = [int(round(orig_size[i] * orig_spacing[i] / min_sp)) for i in range(3)]
+                resampler = sitk.ResampleImageFilter()
+                resampler.SetOutputSpacing(new_spacing)
+                resampler.SetSize(new_size)
+                resampler.SetOutputDirection(sitk_image.GetDirection())
+                resampler.SetOutputOrigin(sitk_image.GetOrigin())
+                resampler.SetTransform(sitk.Transform())
+                resampler.SetDefaultPixelValue(0)
+                resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                resampled = resampler.Execute(sitk_image)
+                sitk.WriteImage(resampled, filepath)
+            else:
+                # Create storage node and write at reference volume spacing
+                storage_node = labelmap_node.CreateDefaultStorageNode()
+                slicer.mrmlScene.AddNode(storage_node)
+                storage_node.SetFileName(filepath)
+                if not storage_node.WriteData(labelmap_node):
+                    raise RuntimeError(f"Failed to save segmentation to {filepath}")
 
-            if not storage_node.WriteData(labelmap_node):
-                raise RuntimeError(f"Failed to save segmentation to {filepath}")
-            
             # Verify file was created
             if not os.path.exists(filepath):
                 raise RuntimeError(f"Output file not created: {filepath}")
@@ -514,8 +647,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             slicer.util.warningDisplay("Please set a directory first", windowTitle="Save Error")
             return
         
-        # Save current segmentation
-        result = self.save_segmentation_nii("FINAL", is_final=True)
+        # Save current segmentation at isotropic spacing
+        result = self.save_segmentation_nii("FINAL", is_final=True, isotropic=True)
         
         if result:
             if self.ui.CorrectionButton.isChecked():
@@ -1471,6 +1604,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             # This is a review session - don't record in original history
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
+            self.ui.groupBox_3.setVisible(True)
             final_seg_path, _ = self.check_existing_history()
             slicer.util.loadSegmentation(final_seg_path)
             slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
@@ -1478,6 +1612,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             # First-time segmentation (no history, or history only contains load entries)
             self.ui.ReviewPanel.setVisible(False)
             self.ui.DiagnosisBox.setVisible(False)
+            self.ui.groupBox_3.setVisible(False)
             self.segmentation_history = [self.pending_load_entry]
             self.save_history_file()
             self.pending_load_entry = None
