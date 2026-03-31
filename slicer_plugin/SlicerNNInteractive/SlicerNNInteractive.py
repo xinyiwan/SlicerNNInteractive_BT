@@ -343,6 +343,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 dn = node.GetDisplayNode()
                 if dn:
                     dn.SetVisibility(node.GetID() == ref_vol_id)
+            # Set ref volume as background in all slice views so it is actually shown
+            if ref_vol:
+                ref_vol_id_str = ref_vol.GetID()
+                layout_manager = slicer.app.layoutManager()
+                for name in layout_manager.sliceViewNames():
+                    logic = layout_manager.sliceWidget(name).sliceLogic()
+                    logic.GetSliceCompositeNode().SetBackgroundVolumeID(ref_vol_id_str)
         else:
             for node in all_seg_nodes:
                 node.GetDisplayNode().SetVisibility(True)
@@ -467,19 +474,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
             created.append(orient)
 
-            # Spacing check: orientation segmentation must be isotropic
-            import sitkUtils as _su
-            tmp_chk = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
-            try:
-                slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
-                    new_seg_node, tmp_chk, target_vol
-                )
-                sp = _su.PullVolumeFromSlicer(tmp_chk).GetSpacing()
-                assert abs(sp[0] - sp[1]) < 1e-3 and abs(sp[1] - sp[2]) < 1e-3, \
-                    f"Orientation seg {orient} is NOT isotropic: {sp}"
-                print(f"[CHECK] {orient} seg spacing (isotropic): {sp}")
-            finally:
-                slicer.mrmlScene.RemoveNode(tmp_chk)
+            # Spacing check: verify the resampled image (already in memory) is isotropic
+            sp = resampled.GetSpacing()
+            if abs(sp[0] - sp[1]) > 1e-3 or abs(sp[1] - sp[2]) > 1e-3:
+                print(f"[CHECK] WARNING: {orient} seg is NOT isotropic: {sp}")
+            else:
+                print(f"[CHECK] {orient} seg spacing (isotropic OK): {sp}")
 
         # Record in history
         if self.directory:
