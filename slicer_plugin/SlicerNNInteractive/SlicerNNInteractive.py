@@ -288,6 +288,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Add contour checkbox connection
         self.ui.contourCheckBox.stateChanged.connect(self.on_contour_checkbox_changed)
 
+        # Isolate view checkbox
+        self.ui.isolateViewCheckBox.setChecked(False)
+        self.ui.isolateViewCheckBox.stateChanged.connect(self.on_isolate_view_changed)
+
         # Duplicate segmentation to other orientations
         self.ui.pbDuplicateToOrientations.clicked.connect(self.on_duplicate_to_orientations)
 
@@ -321,8 +325,32 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 segment = segmentation.GetSegment(segment_id)
                 if segment:
                     segment.SetColor(1.0, 0.0, 0.0)
-        
-        
+
+    def on_isolate_view_changed(self, state):
+        """Show only the active segmentation and its reference volume when checked."""
+        seg_node = self.get_segmentation_node()
+        ref_vol = self.get_volume_node()
+
+        all_seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+        all_vol_nodes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
+
+        if state:
+            active_seg_id = seg_node.GetID() if seg_node else None
+            ref_vol_id = ref_vol.GetID() if ref_vol else None
+            for node in all_seg_nodes:
+                node.GetDisplayNode().SetVisibility(node.GetID() == active_seg_id)
+            for node in all_vol_nodes:
+                dn = node.GetDisplayNode()
+                if dn:
+                    dn.SetVisibility(node.GetID() == ref_vol_id)
+        else:
+            for node in all_seg_nodes:
+                node.GetDisplayNode().SetVisibility(True)
+            for node in all_vol_nodes:
+                dn = node.GetDisplayNode()
+                if dn:
+                    dn.SetVisibility(True)
+
     def get_volume_orientation(self, volume_node):
         """Return 'axial', 'coronal', or 'sagittal' for a volume node.
 
@@ -439,10 +467,38 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
             created.append(orient)
 
+            # Spacing check: orientation segmentation must be isotropic
+            import sitkUtils as _su
+            tmp_chk = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            try:
+                slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
+                    new_seg_node, tmp_chk, target_vol
+                )
+                sp = _su.PullVolumeFromSlicer(tmp_chk).GetSpacing()
+                assert abs(sp[0] - sp[1]) < 1e-3 and abs(sp[1] - sp[2]) < 1e-3, \
+                    f"Orientation seg {orient} is NOT isotropic: {sp}"
+                print(f"[CHECK] {orient} seg spacing (isotropic): {sp}")
+            finally:
+                slicer.mrmlScene.RemoveNode(tmp_chk)
+
+        # Record in history
+        if self.directory:
+            entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "duplicate_to_orientations",
+                'orientations_created': created,
+                'reference_volume': ref_volume.GetName() if ref_volume else "unknown",
+                'is_final': False,
+                'filename': None,
+                'prompt_type': None,
+                'is_reset': False,
+            }
+            self.segmentation_history.append(entry)
+            self.save_history_file()
+
         slicer.util.infoDisplay(
             f"Duplicated segmentation to: {', '.join(created)}."
         )
-        print(f"Duplicated segmentation to: {', '.join(created)}.")
 
     # ------------------------------------------------------------------
     # Gaussian smoothing
@@ -502,8 +558,16 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 if new_seg:
                     new_seg.SetName(seg_name)
                     new_seg.SetColor(*seg_color)
+                    # After smoothing, show contour only (fill opacity = 0)
+                    if display_node:
+                        display_node.SetSegmentOpacity2DFill(new_id, 0.0)
             finally:
                 slicer.mrmlScene.RemoveNode(tmp_lm)
+
+        # Sync the contour checkbox to reflect the new state
+        self.ui.contourCheckBox.blockSignals(True)
+        self.ui.contourCheckBox.setChecked(True)
+        self.ui.contourCheckBox.blockSignals(False)
 
     # ------------------------------------------------------------------
     # Final registration — resample orientation segmentations to every image
@@ -561,6 +625,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             resampler.SetInterpolator(sitk.sitkNearestNeighbor)
             resampled = resampler.Execute(sitk_src)
 
+            # Spacing check: intermediate isotropic source must be isotropic
+            src_sp = sitk_src.GetSpacing()
+            if abs(src_sp[0] - src_sp[1]) > 1e-3 or abs(src_sp[1] - src_sp[2]) > 1e-3:
+                print(f"[CHECK] WARNING: source seg for {orient} is NOT isotropic: {src_sp}")
+            else:
+                print(f"[CHECK] Source seg ({orient}) isotropic spacing OK: {src_sp}")
+
             tmp_dst = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
             try:
                 sitkUtils.PushVolumeToSlicer(resampled, tmp_dst)
@@ -574,7 +645,33 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             finally:
                 slicer.mrmlScene.RemoveNode(tmp_dst)
 
+            # Spacing check: output must match the reference volume exactly
+            out_sp = resampled.GetSpacing()
+            out_sz = resampled.GetSize()
+            ref_sp = sitk_vol.GetSpacing()
+            ref_sz = sitk_vol.GetSize()
+            sp_ok = all(abs(out_sp[i] - ref_sp[i]) < 1e-3 for i in range(3))
+            sz_ok = out_sz == ref_sz
+            status = "OK" if (sp_ok and sz_ok) else "MISMATCH"
+            print(f"[CHECK] {vol.GetName()}_seg vs ref vol [{status}] "
+                  f"spacing: {out_sp} vs {ref_sp} | size: {out_sz} vs {ref_sz}")
+
             self.registered_seg_nodes.append((new_seg, vol))
+
+        # Record in history
+        if self.directory:
+            reg_entry = {
+                'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                'action': "register_to_all_images",
+                'num_registered': len(self.registered_seg_nodes),
+                'volumes': [v.GetName() for _, v in self.registered_seg_nodes],
+                'is_final': False,
+                'filename': None,
+                'prompt_type': None,
+                'is_reset': False,
+            }
+            self.segmentation_history.append(reg_entry)
+            self.save_history_file()
 
         n = len(self.registered_seg_nodes)
         slicer.util.infoDisplay(
@@ -1797,6 +1894,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Clear existing data
         self.clearLoadedData()
 
+        # Disconnect the editor widget from the scene while loading volumes so
+        # that the widget doesn't try to auto-set its source volume before a
+        # segmentation node exists (which produces VTK warnings).
+        self.ui.editor_widget.setMRMLScene(None)
+
         # Get available sessions (search recursively into subdirectories)
         sessions = sorted([
             p
@@ -1820,6 +1922,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 node = slicer.util.loadVolume(str(session))
                 if node:
                     node.SetName(folder_name)
+
+        # Reconnect the editor widget to the scene now that volumes are loaded
+        self.ui.editor_widget.setMRMLScene(slicer.mrmlScene)
         
         # Check if we're in reviewer mode (has existing segmentation history with real operations)
         history_dir = os.path.join(self.directory, "segmentation_history")

@@ -672,6 +672,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QCheckBox" name="isolateViewCheckBox">
+     <property name="text">
+      <string>Isolate view: only show active segmentation and its reference volume</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QPushButton" name="pbGaussianSmooth">
      <property name="text">
       <string>Gaussian smooth visible segments (σ=1mm)</string>
