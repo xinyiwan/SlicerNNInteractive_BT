@@ -1895,18 +1895,15 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # Load volume and segmentation files
         for session in sessions:
+            session_str = str(session)
             folder_name = session.parent.name
-            if 'seg' in str(session).lower() and "final" in str(session).lower():
+            # Skip everything inside segmentation_history — segs are loaded separately
+            if "segmentation_history" in session_str:
                 continue
-                # Load segmentation but keep hidden
-                # seg_node = slicer.util.loadSegmentation(session)
-                # seg_node.GetDisplayNode().SetVisibility(False)
-            elif 'Localizer' in str(session) or 'DYN' in str(session):
-                continue
-            elif "history" in folder_name:
+            elif 'Localizer' in session_str or 'DYN' in session_str:
                 continue
             else:
-                node = slicer.util.loadVolume(str(session))
+                node = slicer.util.loadVolume(session_str)
                 if node:
                     node.SetName(folder_name)
 
