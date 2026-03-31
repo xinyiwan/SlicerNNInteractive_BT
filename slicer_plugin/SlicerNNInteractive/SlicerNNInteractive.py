@@ -687,7 +687,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """Save every registered segmentation to segs/.
 
         - First-time save:  segmentation_history/segs/
-        - Review save:      segmentation_history/review_<mode>/segs/
+        - Review save:      review/<timestamp>/segs/
 
         Each <vol_name>_seg node was already resampled to the native spacing of
         its reference volume during registration, so we just export it directly.
@@ -704,10 +704,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             print("No session directory set; cannot save registered segmentations.")
             return
 
-        if review_mode:
-            segs_dir = os.path.join(
-                self.directory, "segmentation_history", f"review_{review_mode}", "segs"
-            )
+        in_review = review_mode and self.review_session_dir
+        if in_review:
+            segs_dir = os.path.join(self.review_session_dir, "segs")
         else:
             segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
         os.makedirs(segs_dir, exist_ok=True)
