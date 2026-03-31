@@ -683,8 +683,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     # Per-image save helper (called from on_final_save)
     # ------------------------------------------------------------------
 
-    def save_registered_segs_to_image_folders(self):
-        """Save every registered segmentation to segmentation_history/segs/.
+    def save_registered_segs_to_image_folders(self, review_mode=None):
+        """Save every registered segmentation to segs/.
+
+        - First-time save:  segmentation_history/segs/
+        - Review save:      segmentation_history/review_<mode>/segs/
 
         Each <vol_name>_seg node was already resampled to the native spacing of
         its reference volume during registration, so we just export it directly.
@@ -701,7 +704,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             print("No session directory set; cannot save registered segmentations.")
             return
 
-        segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
+        if review_mode:
+            segs_dir = os.path.join(
+                self.directory, "segmentation_history", f"review_{review_mode}", "segs"
+            )
+        else:
+            segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
         os.makedirs(segs_dir, exist_ok=True)
 
         saved = []
@@ -995,8 +1003,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             else:
                 self.update_history_as_final(result)
 
-            # --- Step 2: save per-image segmentations to image folders ---
-            self.save_registered_segs_to_image_folders()
+            # --- Step 2: save per-image segmentations to segs folder ---
+            self.save_registered_segs_to_image_folders(review_mode=review_mode)
 
             slicer.util.infoDisplay(f"{message}:\n{result}", windowTitle="Save Successful")
         else:
