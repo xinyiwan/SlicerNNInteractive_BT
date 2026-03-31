@@ -1931,28 +1931,23 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             }
             self.save_review_history(load_entry)
 
-            # Load all is_final segmentations from segmentation_history
-            try:
-                with open(history_path, 'r') as f:
-                    existing_history = json.load(f)
-            except Exception:
-                existing_history = []
-
+            # Load all segmentations from segmentation_history/segs/
+            segs_dir = os.path.join(history_dir, "segs")
             loaded_seg_names = set()
-            for entry in existing_history:
-                fname = entry.get('filename')
-                if not fname or not entry.get('is_final'):
-                    continue
-                seg_path = os.path.join(history_dir, fname)
-                if not os.path.exists(seg_path) or fname in loaded_seg_names:
-                    continue
-                loaded_seg_names.add(fname)
-                seg_node = slicer.util.loadSegmentation(seg_path)
-                if seg_node:
-                    seg_node.SetName(f"History_{entry.get('action', 'seg')}_{entry['timestamp']}")
-                    ref_vol_name = entry.get('reference_volume', '')
-                    if ref_vol_name:
-                        ref_vol = slicer.mrmlScene.GetFirstNodeByName(ref_vol_name)
+            if os.path.isdir(segs_dir):
+                for fname in sorted(os.listdir(segs_dir)):
+                    if not (fname.endswith('.nii.gz') or fname.endswith('.nii')):
+                        continue
+                    if fname in loaded_seg_names:
+                        continue
+                    seg_path = os.path.join(segs_dir, fname)
+                    seg_node = slicer.util.loadSegmentation(seg_path)
+                    if seg_node:
+                        loaded_seg_names.add(fname)
+                        # Name without _seg.nii.gz suffix → matches the volume name
+                        vol_name = fname.replace('_seg.nii.gz', '').replace('_seg.nii', '')
+                        seg_node.SetName(f"{vol_name}_seg")
+                        ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
                         if ref_vol:
                             seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
 
