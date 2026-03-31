@@ -697,9 +697,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         import sitkUtils
         import re
 
-        if not hasattr(self, "registered_seg_nodes") or not self.registered_seg_nodes:
-            return
-
         if not self.directory:
             print("No session directory set; cannot save registered segmentations.")
             return
@@ -711,8 +708,24 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
         os.makedirs(segs_dir, exist_ok=True)
 
+        # Build the list of (seg_node, vol_node) pairs to save.
+        # In review mode without registered_seg_nodes, fall back to all
+        # non-scribble segmentation nodes currently in the scene.
+        has_registered = hasattr(self, "registered_seg_nodes") and self.registered_seg_nodes
+        if has_registered:
+            pairs = self.registered_seg_nodes
+        elif in_review:
+            current_vol = self.get_volume_node()
+            pairs = [
+                (n, current_vol)
+                for n in slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
+                if n.GetName() != self.scribble_segment_node_name
+            ]
+        else:
+            return  # nothing registered and not in review — nothing to save
+
         saved = []
-        for seg_node, vol_node in self.registered_seg_nodes:
+        for seg_node, vol_node in pairs:
             vol_name_clean = re.sub(r'[^a-zA-Z0-9_-]', '_', vol_node.GetName())
             out_path = os.path.join(segs_dir, f"{vol_name_clean}_seg.nii.gz")
 
@@ -1954,6 +1967,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                         ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
                         if ref_vol:
                             seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
+                        # Hide by default; reviewer can isolate/toggle individually
+                        dn = seg_node.GetDisplayNode()
+                        if dn:
+                            dn.SetVisibility(False)
 
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
