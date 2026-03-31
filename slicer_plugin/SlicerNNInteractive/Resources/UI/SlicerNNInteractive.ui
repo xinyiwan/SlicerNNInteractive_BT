@@ -502,7 +502,7 @@
          </font>
         </property>
         <property name="title">
-         <string>Choose Main Anatomy</string>
+         <string>Choose the Main Location of BT</string>
         </property>
         <layout class="QVBoxLayout" name="verticalLayout_anatomy">
          <item>
@@ -540,7 +540,7 @@
          <item>
           <widget class="QLineEdit" name="customAnatomyEdit">
            <property name="placeholderText">
-            <string>Or type custom anatomy location here...</string>
+            <string>Or type anatomy location here...</string>
            </property>
           </widget>
          </item>
@@ -592,7 +592,7 @@
       </font>
      </property>
      <property name="title">
-      <string>Choose Your Diagnosis</string>
+      <string>Make Your Diagnosis</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout_7">
       <item>
@@ -672,13 +672,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QPushButton" name="pbDuplicateToOrientations">
-     <property name="text">
-      <string>Duplicate segmentation to other orientations</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QPushButton" name="pbGaussianSmooth">
      <property name="text">
       <string>Gaussian smooth visible segments (σ=1mm)</string>
@@ -686,9 +679,16 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="pbDuplicateToOrientations">
+     <property name="text">
+      <string>1. Duplicate segmentation to other orientations</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QPushButton" name="pbFinalRegistration">
      <property name="text">
-      <string>Register segmentations to all images</string>
+      <string>2. Register segmentations to all images</string>
      </property>
     </widget>
    </item>

@@ -442,6 +442,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         slicer.util.infoDisplay(
             f"Duplicated segmentation to: {', '.join(created)}."
         )
+        print(f"Duplicated segmentation to: {', '.join(created)}.")
 
     # ------------------------------------------------------------------
     # Gaussian smoothing
@@ -538,7 +539,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
             # Export source segmentation to a temporary labelmap in the
             # orientation segmentation's reference space.
-            tmp_src = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+            tmp_src = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode", "__tmp_finalreg")
             try:
                 slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
                     src_seg_node, tmp_src, src_ref_vol
@@ -1813,6 +1814,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 # seg_node.GetDisplayNode().SetVisibility(False)
             elif 'Localizer' in str(session) or 'DYN' in str(session):
                 continue
+            elif "history" in folder_name:
+                continue
             else:
                 node = slicer.util.loadVolume(str(session))
                 if node:
@@ -1836,8 +1839,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.DiagnosisBox.setVisible(True)
             self.ui.groupBox_3.setVisible(True)
             final_seg_path, _ = self.check_existing_history()
-            slicer.util.loadSegmentation(final_seg_path)
-            slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
+            if final_seg_path:                 
+                slicer.util.loadSegmentation(final_seg_path)
+                slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
         else:
             # First-time segmentation (no history, or history only contains load entries)
             self.ui.ReviewPanel.setVisible(False)
