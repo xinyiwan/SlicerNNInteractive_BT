@@ -119,6 +119,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
         self.ai_seg_node = None
         self._last_volume_id = None
+        self.review_session_dir = None  # Set when folder opened in review mode
         # Maps orientation label → (seg_node, ref_vol_node) populated by Duplicate button
         self.orientation_seg_map = {}
 
@@ -757,10 +758,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         volume_name_clean = re.sub(r'[^a-zA-Z0-9_-]', '_', volume_name)
         
         # Determine save directory based on review mode
-        if self.ui.CorrectionButton.isChecked():
-            save_dir = os.path.join(self.directory, "review_correction")
-        elif self.ui.RedoButton.isChecked():
-            save_dir = os.path.join(self.directory, "review_redo")
+        in_review = self.ui.CorrectionButton.isChecked() or self.ui.RedoButton.isChecked()
+        if in_review and self.review_session_dir:
+            save_dir = self.review_session_dir
         else:
             save_dir = os.path.join(self.directory, "segmentation_history")
         
@@ -835,10 +835,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 'reference_volume': volume_name
             }
 
-            if self.ui.CorrectionButton.isChecked():
-                self.save_review_history("correction", history_entry)
-            elif self.ui.RedoButton.isChecked():
-                self.save_review_history("redo", history_entry)
+            if in_review:
+                self.save_review_history(history_entry)
             else:
                 if not any(entry['timestamp'] == timestamp for entry in self.segmentation_history):
                     self.segmentation_history.append(history_entry)
@@ -901,21 +899,19 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         except Exception as e:
             debug_print(f"Error saving history file: {e}")
 
-    def get_review_history_path(self, review_type):
-        """Get path for review history file based on type (correction/redo)"""
-        if not self.directory:
+    def get_review_history_path(self):
+        """Return path to history.json inside the current review session directory."""
+        if not self.review_session_dir:
             return None
-        review_dir = os.path.join(self.directory, f"review_{review_type}")
-        os.makedirs(review_dir, exist_ok=True)
-        return os.path.join(review_dir, "history.json")
+        os.makedirs(self.review_session_dir, exist_ok=True)
+        return os.path.join(self.review_session_dir, "history.json")
 
-    def save_review_history(self, review_type, entry):
-        """Save an entry to the appropriate review history file"""
-        history_path = self.get_review_history_path(review_type)
+    def save_review_history(self, entry):
+        """Append an entry to the review session history file."""
+        history_path = self.get_review_history_path()
         if not history_path:
             return
-        
-        # Load existing history if available
+
         existing_history = []
         if os.path.exists(history_path):
             try:
@@ -923,11 +919,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                     existing_history = json.load(f)
             except Exception as e:
                 debug_print(f"Error reading review history: {e}")
-        
-        # Add new entry
+
         existing_history.append(entry)
-        
-        # Save updated history
+
         try:
             with open(history_path, 'w') as f:
                 json.dump(existing_history, f, indent=2)
@@ -980,26 +974,26 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         if result:
             if self.ui.CorrectionButton.isChecked():
-                completion_entry = {
-                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
-                    'action': "review_correction_complete",
-                    'filename': os.path.basename(result),
-                    'notes': "Completed manual correction review"
-                }
-                self.save_review_history("correction", completion_entry)
+                review_mode = "correction"
                 message = "Final corrected segmentation saved"
             elif self.ui.RedoButton.isChecked():
-                completion_entry = {
-                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
-                    'action': "review_redo_complete",
-                    'filename': os.path.basename(result),
-                    'notes': "Completed re-segmentation review"
-                }
-                self.save_review_history("redo", completion_entry)
+                review_mode = "redo"
                 message = "Final re-segmentation saved"
             else:
-                self.update_history_as_final(result)
+                review_mode = None
                 message = "Final segmentation saved"
+
+            if review_mode:
+                completion_entry = {
+                    'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+                    'action': "review_complete",
+                    'review_mode': review_mode,
+                    'filename': os.path.basename(result),
+                    'notes': f"Completed {review_mode} review"
+                }
+                self.save_review_history(completion_entry)
+            else:
+                self.update_history_as_final(result)
 
             # --- Step 2: save per-image segmentations to image folders ---
             self.save_registered_segs_to_image_folders()
@@ -1053,46 +1047,31 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     
     def checkReviewChoice(self):
         if self.ui.CorrectionButton.isChecked() and (not self.ui.RedoButton.isChecked()):
-            # Save pending load to correction history if exists
-            print(self.pending_load_entry)
-            print(hasattr(self, 'pending_load_entry'))
-
-            if self.pending_load_entry:
-                self.save_review_history("correction", self.pending_load_entry)
-                self.pending_load_entry = None
-            
-            # Manual correction mode
             correction_entry = {
                 'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
                 'action': "correction_start",
+                'review_mode': "correction",
                 'notes': "Beginning manual corrections"
             }
-        
-            self.save_review_history("correction", correction_entry)
+            self.save_review_history(correction_entry)
             slicer.util.infoDisplay("Now recording manual correction review session", windowTitle="Correction Mode")
 
         elif not self.ui.CorrectionButton.isChecked() and self.ui.RedoButton.isChecked():
-
-            if hasattr(self, 'pending_load_entry') and self.pending_load_entry:
-                self.save_review_history("redo", self.pending_load_entry)
-                self.pending_load_entry = None
-                
-            # Redo mode - hide existing segmentation
+            # Redo mode — hide existing segmentations so reviewer starts fresh
             seg_nodes = slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
             for seg_node in seg_nodes:
                 if seg_node.GetName() != self.scribble_segment_node_name:
                     seg_node.GetDisplayNode().SetVisibility(False)
-            
-            # Create new empty segmentation
+
             self.get_segmentation_node()
-            
-            # Record redo start
+
             redo_entry = {
                 'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
                 'action': "redo_start",
+                'review_mode': "redo",
                 'notes': "Beginning re-segmentation"
             }
-            self.save_review_history("redo", redo_entry)
+            self.save_review_history(redo_entry)
             slicer.util.infoDisplay("Re-segmentation mode activated", windowTitle="Redo Mode")
 
         elif self.ui.RedoButton.isChecked() and self.ui.CorrectionButton.isChecked():
@@ -1939,16 +1918,54 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 pass
 
         if has_real_operations:
-            # This is a review session - don't record in original history
+            # Create a timestamped review session directory
+            review_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.review_session_dir = os.path.join(self.directory, "review", review_ts)
+            os.makedirs(self.review_session_dir, exist_ok=True)
+
+            # Record the load event in the review session history
+            load_entry = {
+                'timestamp': review_ts,
+                'action': "review_load",
+                'notes': "Opened folder for review"
+            }
+            self.save_review_history(load_entry)
+
+            # Load all is_final segmentations from segmentation_history
+            try:
+                with open(history_path, 'r') as f:
+                    existing_history = json.load(f)
+            except Exception:
+                existing_history = []
+
+            loaded_seg_names = set()
+            for entry in existing_history:
+                fname = entry.get('filename')
+                if not fname or not entry.get('is_final'):
+                    continue
+                seg_path = os.path.join(history_dir, fname)
+                if not os.path.exists(seg_path) or fname in loaded_seg_names:
+                    continue
+                loaded_seg_names.add(fname)
+                seg_node = slicer.util.loadSegmentation(seg_path)
+                if seg_node:
+                    seg_node.SetName(f"History_{entry.get('action', 'seg')}_{entry['timestamp']}")
+                    ref_vol_name = entry.get('reference_volume', '')
+                    if ref_vol_name:
+                        ref_vol = slicer.mrmlScene.GetFirstNodeByName(ref_vol_name)
+                        if ref_vol:
+                            seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
+
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
             self.ui.groupBox_3.setVisible(True)
-            final_seg_path, _ = self.check_existing_history()
-            if final_seg_path:                 
-                slicer.util.loadSegmentation(final_seg_path)
-                slicer.util.infoDisplay("Loaded existing segmentation for a second review.", windowTitle="Review Mode")
+            slicer.util.infoDisplay(
+                f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
+                windowTitle="Review Mode"
+            )
         else:
             # First-time segmentation (no history, or history only contains load entries)
+            self.review_session_dir = None
             self.ui.ReviewPanel.setVisible(False)
             self.ui.DiagnosisBox.setVisible(False)
             self.ui.groupBox_3.setVisible(False)
@@ -1994,15 +2011,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.ClinicalInfoLabel.setVisible(checked and has_info)
 
     def _get_assessment_json_path(self):
-        """Return path to the assessment JSON in the active review directory (or session dir)."""
+        """Return path to the assessment JSON in the active review session directory."""
         if not self.directory:
             return None
-        if self.ui.CorrectionButton.isChecked():
-            folder = os.path.join(self.directory, "review_correction")
-        elif self.ui.RedoButton.isChecked():
-            folder = os.path.join(self.directory, "review_redo")
-        else:
-            folder = self.directory
+        folder = self.review_session_dir if self.review_session_dir else self.directory
         os.makedirs(folder, exist_ok=True)
         return os.path.join(folder, "assessment.json")
 
