@@ -697,10 +697,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             vol_name_clean = re.sub(r'[^a-zA-Z0-9_-]', '_', vol_node.GetName())
             out_path = os.path.join(segs_dir, f"{vol_name_clean}_seg.nii.gz")
 
+            seg = seg_node.GetSegmentation()
+            seg_ids = [seg.GetNthSegmentID(i) for i in range(seg.GetNumberOfSegments())]
             tmp_lm = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
             try:
-                slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
-                    seg_node, tmp_lm, vol_node
+                slicer.modules.segmentations.logic().ExportSegmentsToLabelmapNode(
+                    seg_node, seg_ids, tmp_lm, vol_node
                 )
                 sitk_lm = sitkUtils.PullVolumeFromSlicer(tmp_lm)
                 sitk.WriteImage(sitk_lm, out_path)
@@ -957,19 +959,33 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.editor_widget.setSourceVolumeNode(original_vol)
             result = saved_results[0] if saved_results else None
         elif in_review and has_registered:
-            # Review mode: save each loaded seg/vol pair individually.
+            # Review mode: write each seg directly to review_session_dir.
+            # Bypass save_segmentation_nii — it uses CorrectionButton/RedoButton to
+            # detect review mode (not set here) and ExportVisibleSegments (segs are hidden).
+            import SimpleITK as sitk
+            import sitkUtils
+            import re as _re
             saved_results = []
-            original_vol = self.get_volume_node()
-            original_seg = self.get_segmentation_node()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             for seg_node, ref_vol in self.registered_seg_nodes:
-                self.ui.editor_widget.setSegmentationNode(seg_node)
-                self.ui.editor_widget.setSourceVolumeNode(ref_vol)
                 vol_name = ref_vol.GetName() if ref_vol else "unknown"
-                r = self.save_segmentation_nii(f"FINAL_{vol_name}", is_final=True, isotropic=False)
-                if r:
-                    saved_results.append(r)
-            self.ui.editor_widget.setSegmentationNode(original_seg)
-            self.ui.editor_widget.setSourceVolumeNode(original_vol)
+                vol_name_clean = _re.sub(r'[^a-zA-Z0-9_-]', '_', vol_name)
+                out_path = os.path.join(self.review_session_dir,
+                                        f"FINAL_{vol_name_clean}_{timestamp}.nii.gz")
+                seg = seg_node.GetSegmentation()
+                seg_ids = [seg.GetNthSegmentID(i) for i in range(seg.GetNumberOfSegments())]
+                tmp_lm = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+                try:
+                    slicer.modules.segmentations.logic().ExportSegmentsToLabelmapNode(
+                        seg_node, seg_ids, tmp_lm, ref_vol
+                    )
+                    sitk_lm = sitkUtils.PullVolumeFromSlicer(tmp_lm)
+                    sitk.WriteImage(sitk_lm, out_path)
+                    saved_results.append(out_path)
+                except Exception as e:
+                    print(f"Failed to save review FINAL for {vol_name}: {e}")
+                finally:
+                    slicer.mrmlScene.RemoveNode(tmp_lm)
             result = saved_results[0] if saved_results else None
         else:
             result = self.save_segmentation_nii("FINAL", is_final=True, isotropic=True)
