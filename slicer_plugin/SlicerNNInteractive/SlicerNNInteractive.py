@@ -397,8 +397,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         ref_orientation = self.get_volume_orientation(ref_volume)
 
-        # Reset the map and seed with the original segmentation
-        self.orientation_seg_map = {ref_orientation: (seg_node, ref_volume)}
+        # Reset the map and seed with the original segmentation.
+        # Tuple: (seg_node, ref_vol, iso_labelmap_node | None)
+        # iso_labelmap_node is the isotropic intermediate labelmap kept alive for
+        # on_final_registration_clicked to use as export reference.
+        self.orientation_seg_map = {ref_orientation: (seg_node, ref_volume, None)}
 
         # Collect one representative volume per distinct orientation (excluding reference)
         all_volumes = slicer.util.getNodesByClass("vtkMRMLScalarVolumeNode")
@@ -433,20 +436,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         created = []
         for target_vol, orient in target_volumes:
-            # Determine isotropic spacing from the target volume
+            # Resample ref seg to the target volume's native spacing/size.
             sitk_target = sitkUtils.PullVolumeFromSlicer(target_vol)
-            target_spacing = sitk_target.GetSpacing()
-            min_sp = min(target_spacing)
-            iso_spacing = [min_sp, min_sp, min_sp]
-            orig_size = sitk_target.GetSize()
-            new_size = [
-                int(round(orig_size[i] * target_spacing[i] / min_sp))
-                for i in range(3)
-            ]
 
             resampler = sitk.ResampleImageFilter()
-            resampler.SetOutputSpacing(iso_spacing)
-            resampler.SetSize(new_size)
+            resampler.SetOutputSpacing(sitk_target.GetSpacing())
+            resampler.SetSize(sitk_target.GetSize())
             resampler.SetOutputDirection(sitk_target.GetDirection())
             resampler.SetOutputOrigin(sitk_target.GetOrigin())
             resampler.SetTransform(sitk.Transform())
@@ -462,25 +457,17 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                 sitkUtils.PushVolumeToSlicer(resampled, new_labelmap)
                 new_seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
                 new_seg_node.SetName(f"{seg_node.GetName()}_{orient}")
-                # Set reference geometry BEFORE import so Slicer doesn't try to
-                # deserialize an empty geometry string during import.
                 new_seg_node.SetReferenceImageGeometryParameterFromVolumeNode(target_vol)
                 new_seg_node.CreateDefaultDisplayNodes()
                 slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
                     new_labelmap, new_seg_node
                 )
-                self.orientation_seg_map[orient] = (new_seg_node, target_vol)
+                self.orientation_seg_map[orient] = (new_seg_node, target_vol, None)
             finally:
                 slicer.mrmlScene.RemoveNode(new_labelmap)
 
             created.append(orient)
-
-            # Spacing check: verify the resampled image (already in memory) is isotropic
-            sp = resampled.GetSpacing()
-            if abs(sp[0] - sp[1]) > 1e-3 or abs(sp[1] - sp[2]) > 1e-3:
-                print(f"[CHECK] WARNING: {orient} seg is NOT isotropic: {sp}")
-            else:
-                print(f"[CHECK] {orient} seg spacing (isotropic OK): {sp}")
+            print(f"[CHECK] duplicated {orient} seg spacing: {resampled.GetSpacing()}")
 
         # Record in history
         if self.directory:
@@ -600,10 +587,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             if orient not in self.orientation_seg_map:
                 continue  # no segmentation for this orientation
 
-            src_seg_node, src_ref_vol = self.orientation_seg_map[orient]
+            src_seg_node, src_ref_vol, *_ = self.orientation_seg_map[orient]
 
-            # Export source segmentation to a temporary labelmap in the
-            # orientation segmentation's reference space.
+            # Export source segmentation to a temporary labelmap in its reference space.
             tmp_src = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode", "__tmp_finalreg")
             try:
                 slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(
@@ -625,13 +611,6 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             resampler.SetDefaultPixelValue(0)
             resampler.SetInterpolator(sitk.sitkNearestNeighbor)
             resampled = resampler.Execute(sitk_src)
-
-            # Spacing check: intermediate isotropic source must be isotropic
-            src_sp = sitk_src.GetSpacing()
-            if abs(src_sp[0] - src_sp[1]) > 1e-3 or abs(src_sp[1] - src_sp[2]) > 1e-3:
-                print(f"[CHECK] WARNING: source seg for {orient} is NOT isotropic: {src_sp}")
-            else:
-                print(f"[CHECK] Source seg ({orient}) isotropic spacing OK: {src_sp}")
 
             tmp_dst = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
             try:
@@ -977,7 +956,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             saved_results = []
             original_vol = self.get_volume_node()
             original_seg = self.get_segmentation_node()
-            for orient, (seg_node, ref_vol) in self.orientation_seg_map.items():
+            for orient, (seg_node, ref_vol, *_) in self.orientation_seg_map.items():
                 # Temporarily point the editor at this seg/volume pair so that
                 # save_segmentation_nii picks up the right nodes.
                 self.ui.editor_widget.setSegmentationNode(seg_node)
@@ -1418,6 +1397,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             _remove(prompt_type["name"])
 
         self.ui.pbInteractionLassoCancel.setVisible(False)
+
+        # Remove scribble observer before destroying the node, otherwise removing the
+        # node from the scene fires AnyEvent and spuriously triggers on_scribble_finished.
+        if hasattr(self, "_scribble_labelmap_callback_tag") and hasattr(self, "scribble_segment_node"):
+            tag = self._scribble_labelmap_callback_tag.get("tag", None)
+            if tag:
+                self.scribble_segment_node.RemoveObserver(tag)
+            del self._scribble_labelmap_callback_tag
 
         _remove(self.scribble_segment_node_name)
 
