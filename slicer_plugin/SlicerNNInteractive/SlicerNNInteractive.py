@@ -687,21 +687,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
         os.makedirs(segs_dir, exist_ok=True)
 
-        # Build the list of (seg_node, vol_node) pairs to save.
-        # In review mode without registered_seg_nodes, fall back to all
-        # non-scribble segmentation nodes currently in the scene.
-        has_registered = hasattr(self, "registered_seg_nodes") and self.registered_seg_nodes
-        if has_registered:
-            pairs = self.registered_seg_nodes
-        elif in_review:
-            current_vol = self.get_volume_node()
-            pairs = [
-                (n, current_vol)
-                for n in slicer.util.getNodesByClass("vtkMRMLSegmentationNode")
-                if n.GetName() != self.scribble_segment_node_name
-            ]
-        else:
-            return  # nothing registered and not in review — nothing to save
+        has_registered = bool(getattr(self, "registered_seg_nodes", None))
+        if not has_registered:
+            return  # nothing to save
+        pairs = self.registered_seg_nodes
 
         saved = []
         for seg_node, vol_node in pairs:
@@ -941,7 +930,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         """Handle final save button click.
 
         Two-step save:
-          1. Save all main isotropic orientation segmentations to history.
+          1. Save all main orientation segmentations to history.
           2. Save every registered segmentation to its image folder at the
              native (non-isotropic) spacing of the corresponding volume.
         """
@@ -949,22 +938,36 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             slicer.util.warningDisplay("Please set a directory first", windowTitle="Save Error")
             return
 
-        # --- Step 1: save main isotropic segmentations to history ---
-        # If orientation_seg_map is populated, save each orientation's segmentation.
-        # Otherwise fall back to the single active segmentation (original workflow).
+        # --- Step 1: save main segmentations to history/review dir ---
+        in_review = self.ui.CorrectionButton.isChecked() or self.ui.RedoButton.isChecked()
+        has_registered = bool(getattr(self, "registered_seg_nodes", None))
+
         if self.orientation_seg_map:
+            # Multi-orientation workflow: save one file per orientation.
             saved_results = []
             original_vol = self.get_volume_node()
             original_seg = self.get_segmentation_node()
             for orient, (seg_node, ref_vol, *_) in self.orientation_seg_map.items():
-                # Temporarily point the editor at this seg/volume pair so that
-                # save_segmentation_nii picks up the right nodes.
                 self.ui.editor_widget.setSegmentationNode(seg_node)
                 self.ui.editor_widget.setSourceVolumeNode(ref_vol)
-                r = self.save_segmentation_nii(f"FINAL_{orient}", is_final=True, isotropic=True)
+                r = self.save_segmentation_nii(f"FINAL_{orient}", is_final=True, isotropic=False)
                 if r:
                     saved_results.append(r)
-            # Restore original editor state
+            self.ui.editor_widget.setSegmentationNode(original_seg)
+            self.ui.editor_widget.setSourceVolumeNode(original_vol)
+            result = saved_results[0] if saved_results else None
+        elif in_review and has_registered:
+            # Review mode: save each loaded seg/vol pair individually.
+            saved_results = []
+            original_vol = self.get_volume_node()
+            original_seg = self.get_segmentation_node()
+            for seg_node, ref_vol in self.registered_seg_nodes:
+                self.ui.editor_widget.setSegmentationNode(seg_node)
+                self.ui.editor_widget.setSourceVolumeNode(ref_vol)
+                vol_name = ref_vol.GetName() if ref_vol else "unknown"
+                r = self.save_segmentation_nii(f"FINAL_{vol_name}", is_final=True, isotropic=False)
+                if r:
+                    saved_results.append(r)
             self.ui.editor_widget.setSegmentationNode(original_seg)
             self.ui.editor_widget.setSourceVolumeNode(original_vol)
             result = saved_results[0] if saved_results else None
@@ -1938,6 +1941,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             # Load all segmentations from segmentation_history/segs/
             segs_dir = os.path.join(history_dir, "segs")
             loaded_seg_names = set()
+            self.registered_seg_nodes = []
             if os.path.isdir(segs_dir):
                 for fname in sorted(os.listdir(segs_dir)):
                     if not (fname.endswith('.nii.gz') or fname.endswith('.nii')):
@@ -1958,6 +1962,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                         dn = seg_node.GetDisplayNode()
                         if dn:
                             dn.SetVisibility(False)
+                        # Track pairs so on_final_save can save each seg to the right volume
+                        if ref_vol:
+                            self.registered_seg_nodes.append((seg_node, ref_vol))
 
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
