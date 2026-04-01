@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>437</width>
-    <height>1710</height>
+    <width>448</width>
+    <height>1738</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -551,37 +551,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="ReviewPanel">
-     <property name="font">
-      <font>
-       <weight>50</weight>
-       <italic>false</italic>
-       <bold>false</bold>
-       <underline>true</underline>
-      </font>
-     </property>
-     <property name="title">
-      <string>Reviewer Panel</string>
-     </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_6">
-      <item>
-       <widget class="QCheckBox" name="CorrectionButton">
-        <property name="text">
-         <string>Add Manual Correction</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="RedoButton">
-        <property name="text">
-         <string>Redo Segmentation</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
     <widget class="QGroupBox" name="DiagnosisBox">
      <property name="font">
       <font>
@@ -658,6 +627,37 @@
        <widget class="QPushButton" name="SubmitDiagButton">
         <property name="text">
          <string>Submit!</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="ReviewPanel">
+     <property name="font">
+      <font>
+       <weight>50</weight>
+       <italic>false</italic>
+       <bold>false</bold>
+       <underline>true</underline>
+      </font>
+     </property>
+     <property name="title">
+      <string>Reviewer Panel</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_6">
+      <item>
+       <widget class="QCheckBox" name="CorrectionButton">
+        <property name="text">
+         <string>Add Manual Correction</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="RedoButton">
+        <property name="text">
+         <string>Redo Segmentation</string>
         </property>
        </widget>
       </item>
