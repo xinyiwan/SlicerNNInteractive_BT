@@ -688,7 +688,7 @@
    <item>
     <widget class="QPushButton" name="pbDuplicateToOrientations">
      <property name="text">
-      <string>1. Duplicate segmentation to other orientations</string>
+      <string>1. Transform segmentation to other orientations</string>
      </property>
     </widget>
    </item>
