@@ -637,9 +637,9 @@
     <widget class="QGroupBox" name="ReviewPanel">
      <property name="font">
       <font>
-       <weight>50</weight>
+       <weight>75</weight>
        <italic>false</italic>
-       <bold>false</bold>
+       <bold>true</bold>
        <underline>true</underline>
       </font>
      </property>

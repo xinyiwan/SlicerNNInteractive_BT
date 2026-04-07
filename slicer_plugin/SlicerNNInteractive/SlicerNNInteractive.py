@@ -1872,6 +1872,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         
         # Set base dir
         try:
+            # for ACQUSITIONS file
             self.base_directory = os.path.dirname(os.path.dirname(self.directory))
         except Exception:
             print("No base directory defined, please check if choose the session folder!")
@@ -2175,12 +2176,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         except ValueError:
             return None, None
 
-        seg_dir = Path(self.seg_directory) / rel_path
+        seg_dir = Path(self.seg_directory) / "ADQUISICIONES" /rel_path
         print("Seg dir path:", self.seg_directory)
         print("Rel path:", rel_path)
         print("Img path", image_path)
         
-        seg_file = seg_dir / "segmentations.nii.gz"
+        # seg_file = seg_dir / "segmentations.nii.gz"
+        seg_file = seg_dir / "segmentation.nii"
         labels_file = seg_dir / "bone_seg_labels.json"
 
         print("Segmentation is from dir:", seg_dir)
