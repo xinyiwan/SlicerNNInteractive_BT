@@ -2176,7 +2176,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         except ValueError:
             return None, None
 
-        seg_dir = Path(self.seg_directory) / "ADQUISICIONES" /rel_path
+        seg_dir = Path(self.seg_directory) / "sorted_data" /rel_path
         print("Seg dir path:", self.seg_directory)
         print("Rel path:", rel_path)
         print("Img path", image_path)

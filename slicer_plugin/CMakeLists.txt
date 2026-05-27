@@ -19,6 +19,7 @@ include(${Slicer_USE_FILE})
 #-----------------------------------------------------------------------------
 # Extension modules
 add_subdirectory(SlicerNNInteractive)
+add_subdirectory(nnInteractive_BT)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------
