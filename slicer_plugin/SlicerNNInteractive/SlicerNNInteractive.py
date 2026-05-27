@@ -328,6 +328,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.base_directory = None  # Set after directory is set (go to the folder level of all subs)
         self._undo_redo_connected = False
         self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
+        self.clinical_csv_path = os.path.normpath(
+            "Z:/home/ext_xinwan/Bone_AI/output/clinical_info/combined_clinical_info.csv"
+        )
         self.ai_seg_node = None
         self._last_volume_id = None
         self.review_session_dir = None  # Set when folder opened in review mode
@@ -2246,23 +2249,81 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # Get pid and scan info
         scan_dir, patient_ID, _ = self.get_path_patientID_scan()
 
-        # # Clinical info (requires CSV on local machine)
-        # import pandas as pd
-        # scan_dir, patient_ID, exp_id = self.get_path_patientID_scan()
-        # data = pd.read_csv('/home/xwan/Documents/Osteosarcoma/os_data_tmp/image_records/Osteo_Sarcoma_xnatsort_20250319_0707_local_paths_mapped_labels.csv')
-        # if patient_ID != '':
-        #     loc = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].loc_prim_code.values[0]
-        #     baseline_info = data[(data['Subject'] == patient_ID) & (data['Experiment'] == exp_id)].Before_after_NAC.values[0]
-        #     self.ui.LocationLabel.text = f'{loc}'
-        #     self.ui.LocationLabel.styleSheet = "color: green" if self.ui.LocationLabel.text != 'None' else "color: Black"
-        #     self.ui.BaselineLabel.text = f'{baseline_info}'
-
         if patient_ID != '':
             self.ui.PID.text = f'{patient_ID}'
             self.ui.PID.styleSheet = "color: green" if self.ui.PID.text != 'None' else "color: Black"
         else:
             print('No image found.')
-    
+
+        # Populate clinical info for the active patient. Visibility is
+        # controlled separately by the PatientInfoBox checkbox.
+        clinical_text = self._load_clinical_info(patient_ID)
+        self.ui.ClinicalInfoLabel.text = clinical_text
+        self.onPatientInfoToggled(self.ui.PatientInfoBox.checked)
+
+    CLINICAL_COLUMNS = [
+        ("age", "Age"),
+        ("gender", "Gender"),
+        ("symptoms", "Symptoms"),
+        ("history_of_neoplasm", "History of neoplasm"),
+        ("suspected_metastasis", "Suspected metastasis"),
+        ("skeletal_location", "Skeletal location"),
+        ("location_within_bone", "Location within bone"),
+    ]
+
+    def _format_clinical_value(self, column, value):
+        import ast
+        value = (value or "").strip()
+        if column == "age":
+            try:
+                return str(int(float(value)))
+            except ValueError:
+                return value
+        if column == "gender":
+            try:
+                g = int(float(value))
+            except ValueError:
+                return value
+            return {0: "Male", 1: "Female"}.get(g, value)
+        if column == "symptoms":
+            if not value:
+                return "None"
+            try:
+                parsed = ast.literal_eval(value)
+                if isinstance(parsed, (list, tuple)):
+                    return ", ".join(str(x) for x in parsed) if parsed else "None"
+            except (ValueError, SyntaxError):
+                pass
+            return value
+        return value
+
+    def _load_clinical_info(self, patient_id):
+        """Look up a patient's row in the clinical CSV and return formatted text.
+
+        Returns an empty string if the CSV is unavailable or the patient is
+        not found. The first matching row is used when duplicates exist.
+        """
+        if not patient_id or not self.clinical_csv_path:
+            return ""
+        if not os.path.exists(self.clinical_csv_path):
+            debug_print(f"Clinical CSV not found: {self.clinical_csv_path}")
+            return ""
+
+        import csv
+        try:
+            with open(self.clinical_csv_path, "r", newline="", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if (row.get("subject") or "").strip() == patient_id:
+                        lines = [
+                            f"{label}: {self._format_clinical_value(col, row.get(col, ''))}"
+                            for col, label in self.CLINICAL_COLUMNS
+                        ]
+                        return "\n".join(lines)
+        except Exception as e:
+            debug_print(f"Error reading clinical CSV: {e}")
+        return ""
+
     def onPatientInfoToggled(self, checked):
         """Show/hide ClinicalInfoLabel based on PatientInfoBox checkbox state."""
         # Only show if we actually have info loaded (non-empty label text)
