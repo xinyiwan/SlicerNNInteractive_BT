@@ -2220,6 +2220,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.DiagnosisBox.setVisible(True)
             self.ui.groupBox_3.setVisible(True)
             self.ui.ImagingFeaturesButton.setVisible(True)
+            self._restore_notes_from_assessment()
             slicer.util.infoDisplay(
                 f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
                 windowTitle="Review Mode"
@@ -2231,6 +2232,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.DiagnosisBox.setVisible(False)
             self.ui.groupBox_3.setVisible(False)
             self.ui.ImagingFeaturesButton.setVisible(False)
+            self.ui.plainTextEdit.setPlainText("")
             self.segmentation_history = [self.pending_load_entry]
             self.save_history_file()
             self.pending_load_entry = None
@@ -2363,6 +2365,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         except Exception as e:
             debug_print(f"Error saving assessment JSON: {e}")
             return False
+
+    def _restore_notes_from_assessment(self):
+        """Load previously saved reviewer notes (if any) into the notes panel."""
+        path = self._get_assessment_json_path()
+        data = self._load_assessment_json(path)
+        notes = data.get('notes', '') if isinstance(data, dict) else ''
+        self.ui.plainTextEdit.setPlainText(notes or "")
 
     def on_submit_anatomy(self):
         """Save tumor location from combo box or custom text edit to assessment JSON."""
@@ -2645,42 +2654,29 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.updateAISegmentation()
 
     def saveResults(self):
-        import os
-        import datetime
-        import json
-        
+        """Persist the reviewer notes into the same assessment.json that
+        anatomy / diagnosis / imaging-features write to, so all per-case
+        review data lives in one place and can be restored next session.
+        """
+        if not self.directory:
+            slicer.util.warningDisplay("Please load scans first.", windowTitle="No Directory")
+            return
+
         try:
-            scan_dir, _, _ = self.get_path_patientID_scan()
-            if not scan_dir or not os.path.exists(scan_dir):
-                raise ValueError("Scan directory does not exist or is invalid")
-                
-            outputFile = os.path.join(scan_dir, 'bone_seg_notes.json')
-            
-            res = {
-                'status': 'completed',
-                'timestamp': '',
-                'notes': ''
-            }
+            path = self._get_assessment_json_path()
+            data = self._load_assessment_json(path)
+            if not isinstance(data, dict):
+                data = {}
 
-            # Get values from UI
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            notes = self.ui.plainTextEdit.toPlainText()
+            data['notes'] = self.ui.plainTextEdit.toPlainText()
+            data['notes_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Update result dictionary
-            res.update({
-                'timestamp': timestamp,
-                'notes': notes
-            })
-            
-            # Write to file with pretty formatting
-            with open(outputFile, 'w') as outfile:
-                json.dump(res, outfile, indent=4)
-                
-            # Optional: Show success message in Slicer
-            slicer.util.infoDisplay(f"Results saved to {outputFile}", windowTitle="Save Successful")
-            
+            if self._save_assessment_json(path, data):
+                slicer.util.infoDisplay(f"Notes saved to {path}", windowTitle="Save Successful")
+            else:
+                slicer.util.errorDisplay("Failed to save notes.", windowTitle="Save Error")
         except Exception as e:
-            slicer.util.errorDisplay(f"Failed to save results: {str(e)}", windowTitle="Save Error")
+            slicer.util.errorDisplay(f"Failed to save notes: {e}", windowTitle="Save Error")
             import traceback
             traceback.print_exc()
     
