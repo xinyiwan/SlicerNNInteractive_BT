@@ -97,6 +97,204 @@ class SlicerNNInteractive(ScriptedLoadableModule):
 
 
 ###############################################################################
+# ImagingFeaturesDialog
+###############################################################################
+
+
+class ImagingFeaturesDialog(qt.QDialog):
+    """Modal dialog for capturing imaging feature selections before diagnosis."""
+
+    YES_NO_FIELDS = [
+        ("on_flat_bone", "On flat bone"),
+        ("body_wall", "Body wall"),
+        ("fibrous_matrix", "Fibrous matrix"),
+        ("fluid_without_fluid_fluid_level", "Fluid - without fluid-fluid level"),
+        ("soft_tissue_invasion", "Soft-tissue invasion"),
+        ("presumed_imaging_diagnosis_do_not_touch", "Presumed imaging diagnosis (Do not touch lesion)"),
+    ]
+
+    LONGITUDINAL_OPTIONS = [
+        "Metaphyseal",
+        "Diaphyseal",
+        "Epiphyso-metaphyseal",
+        "Epiphyseal",
+        "Unknown",
+        "Not applicable (flat bones)",
+    ]
+
+    SUBPERIOSTEAL_OPTIONS = [
+        "Intramedullary",
+        "Intracortical",
+        "Para/peri osteal",
+        "Subperiosteal",
+        "Exophytic",
+    ]
+
+    TUMOR_SHAPE_OPTIONS = [
+        "Round/Oval",
+        "Lobulated",
+        "Geographic",
+        "Irregular",
+        "Exophytic",
+    ]
+
+    MRI_ENHANCEMENT_OPTIONS = [
+        "No enhancement",
+        "Homogeneous",
+        "Heterogenous",
+        "Absence / unknown",
+    ]
+
+    def __init__(self, parent=None, prior=None):
+        qt.QDialog.__init__(self, parent)
+        self.setWindowTitle("Imaging Features")
+        self.setModal(True)
+        prior = prior or {}
+
+        self._yes_no_buttons = {}
+        self._longitudinal_buttons = {}
+        self._mri_buttons = {}
+        self._subperiosteal_checks = {}
+        self._tumor_shape_checks = {}
+
+        main_layout = qt.QVBoxLayout(self)
+
+        scroll = qt.QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = qt.QWidget()
+        form = qt.QFormLayout(container)
+
+        # Yes/No fields (1, 2, 6, 7, 9, 10)
+        for key, label in self.YES_NO_FIELDS:
+            form.addRow(self._build_section_label(label),
+                        self._build_yes_no_row(key, prior.get(key)))
+
+        # 3. Longitudinal location - single choice
+        form.addRow(self._build_section_label("Longitudinal location"),
+                    self._build_single_choice_row(
+                        self._longitudinal_buttons,
+                        self.LONGITUDINAL_OPTIONS,
+                        prior.get("longitudinal_location")))
+
+        # 4. Subperiosteal location - multiple choices
+        form.addRow(self._build_section_label("Subperiosteal location (multiple)"),
+                    self._build_multi_choice_row(
+                        self._subperiosteal_checks,
+                        self.SUBPERIOSTEAL_OPTIONS,
+                        prior.get("subperiosteal_location", [])))
+
+        # 5. Tumor shape - multiple choices
+        form.addRow(self._build_section_label("Tumor shape (multiple)"),
+                    self._build_multi_choice_row(
+                        self._tumor_shape_checks,
+                        self.TUMOR_SHAPE_OPTIONS,
+                        prior.get("tumor_shape", [])))
+
+        # 8. MRI contrast enhancement - single choice
+        form.addRow(self._build_section_label("MRI contrast enhancement"),
+                    self._build_single_choice_row(
+                        self._mri_buttons,
+                        self.MRI_ENHANCEMENT_OPTIONS,
+                        prior.get("mri_contrast_enhancement")))
+
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll)
+
+        button_row = qt.QHBoxLayout()
+        button_row.addStretch(1)
+        cancel_btn = qt.QPushButton("Cancel")
+        save_btn = qt.QPushButton("Save")
+        save_btn.setDefault(True)
+        cancel_btn.clicked.connect(self.reject)
+        save_btn.clicked.connect(self.accept)
+        button_row.addWidget(cancel_btn)
+        button_row.addWidget(save_btn)
+        main_layout.addLayout(button_row)
+
+        self.resize(560, 640)
+
+    def _build_section_label(self, text):
+        label = qt.QLabel(text)
+        font = label.font
+        font.setBold(True)
+        label.setFont(font)
+        return label
+
+    def _build_yes_no_row(self, key, prior_value):
+        widget = qt.QWidget()
+        layout = qt.QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        group = qt.QButtonGroup(widget)
+        yes_btn = qt.QRadioButton("Yes")
+        no_btn = qt.QRadioButton("No")
+        group.addButton(yes_btn)
+        group.addButton(no_btn)
+        if prior_value == "Yes":
+            yes_btn.setChecked(True)
+        elif prior_value == "No":
+            no_btn.setChecked(True)
+        layout.addWidget(yes_btn)
+        layout.addWidget(no_btn)
+        layout.addStretch(1)
+        self._yes_no_buttons[key] = (yes_btn, no_btn)
+        return widget
+
+    def _build_single_choice_row(self, registry, options, prior_value):
+        widget = qt.QWidget()
+        layout = qt.QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        group = qt.QButtonGroup(widget)
+        for opt in options:
+            btn = qt.QRadioButton(opt)
+            group.addButton(btn)
+            layout.addWidget(btn)
+            registry[opt] = btn
+            if prior_value == opt:
+                btn.setChecked(True)
+        return widget
+
+    def _build_multi_choice_row(self, registry, options, prior_values):
+        widget = qt.QWidget()
+        layout = qt.QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        prior_set = set(prior_values or [])
+        for opt in options:
+            chk = qt.QCheckBox(opt)
+            if opt in prior_set:
+                chk.setChecked(True)
+            layout.addWidget(chk)
+            registry[opt] = chk
+        return widget
+
+    def get_values(self):
+        result = {}
+        for key, _label in self.YES_NO_FIELDS:
+            yes_btn, no_btn = self._yes_no_buttons[key]
+            if yes_btn.isChecked():
+                result[key] = "Yes"
+            elif no_btn.isChecked():
+                result[key] = "No"
+            else:
+                result[key] = None
+
+        result["longitudinal_location"] = next(
+            (opt for opt, btn in self._longitudinal_buttons.items() if btn.isChecked()),
+            None,
+        )
+        result["mri_contrast_enhancement"] = next(
+            (opt for opt, btn in self._mri_buttons.items() if btn.isChecked()),
+            None,
+        )
+        result["subperiosteal_location"] = [
+            opt for opt, chk in self._subperiosteal_checks.items() if chk.isChecked()
+        ]
+        result["tumor_shape"] = [
+            opt for opt, chk in self._tumor_shape_checks.items() if chk.isChecked()
+        ]
+        return result
+
+
+###############################################################################
 # SlicerNNInteractiveWidget
 ###############################################################################
 
@@ -257,7 +455,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         # DiagnosisBox and anatomy panel hidden until review panel is shown
         self.ui.DiagnosisBox.setVisible(False)
         self.ui.groupBox_3.setVisible(False)
+        self.ui.ImagingFeaturesButton.setVisible(False)
         self.ui.SubmitDiagButton.clicked.connect(self.on_submit_diagnosis)
+        self.ui.ImagingFeaturesButton.clicked.connect(self.on_open_imaging_features)
 
         # added connection for reviewer panel
         self.ui.CorrectionButton.clicked.connect(self.checkReviewChoice)
@@ -1999,6 +2199,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
             self.ui.groupBox_3.setVisible(True)
+            self.ui.ImagingFeaturesButton.setVisible(True)
             slicer.util.infoDisplay(
                 f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
                 windowTitle="Review Mode"
@@ -2009,6 +2210,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.ReviewPanel.setVisible(False)
             self.ui.DiagnosisBox.setVisible(False)
             self.ui.groupBox_3.setVisible(False)
+            self.ui.ImagingFeaturesButton.setVisible(False)
             self.segmentation_history = [self.pending_load_entry]
             self.save_history_file()
             self.pending_load_entry = None
@@ -2126,6 +2328,29 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             )
         else:
             slicer.util.errorDisplay("Failed to save diagnosis.", windowTitle="Save Error")
+
+    def on_open_imaging_features(self):
+        """Open the imaging features dialog and save selections to assessment JSON."""
+        if not self.directory:
+            slicer.util.warningDisplay("Please load scans first.", windowTitle="No Directory")
+            return
+
+        path = self._get_assessment_json_path()
+        existing = self._load_assessment_json(path)
+        prior = existing.get('imaging_features', {}) if isinstance(existing, dict) else {}
+
+        dialog = ImagingFeaturesDialog(slicer.util.mainWindow(), prior)
+        if dialog.exec_() != qt.QDialog.Accepted:
+            return
+
+        features = dialog.get_values()
+        existing['imaging_features'] = features
+        existing['imaging_features_timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if self._save_assessment_json(path, existing):
+            slicer.util.infoDisplay("Imaging features saved.", windowTitle="Saved")
+        else:
+            slicer.util.errorDisplay("Failed to save imaging features.", windowTitle="Save Error")
 
     def clearLoadedData(self):
         """Remove all volumes and segmentations from the scene"""

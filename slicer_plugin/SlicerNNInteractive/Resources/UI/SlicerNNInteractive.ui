@@ -551,6 +551,19 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="ImagingFeaturesButton">
+     <property name="font">
+      <font>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Imaging Features...</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="DiagnosisBox">
      <property name="font">
       <font>
