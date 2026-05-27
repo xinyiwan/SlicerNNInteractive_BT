@@ -941,7 +941,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             return
 
         # --- Step 1: save main segmentations to history/review dir ---
-        in_review = self.ui.CorrectionButton.isChecked() or self.ui.RedoButton.isChecked()
+        in_review = bool(self.review_session_dir)
         has_registered = bool(getattr(self, "registered_seg_nodes", None))
 
         if self.orientation_seg_map:
@@ -1955,7 +1955,11 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             }
             self.save_review_history(load_entry)
 
-            # Load all segmentations from segmentation_history/segs/
+            # Load all segmentations from segmentation_history/segs/.
+            # Files are plain NIfTI labelmaps (saved via SimpleITK).  loadSegmentation on a
+            # NIfTI does not reliably create the binary labelmap representation, which causes
+            # ExportSegmentsToLabelmapNode to fail later.  Load as a LabelMapVolumeNode and
+            # import explicitly — same approach used by on_final_registration_clicked.
             segs_dir = os.path.join(history_dir, "segs")
             loaded_seg_names = set()
             self.registered_seg_nodes = []
@@ -1966,22 +1970,31 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                     if fname in loaded_seg_names:
                         continue
                     seg_path = os.path.join(segs_dir, fname)
-                    seg_node = slicer.util.loadSegmentation(seg_path)
-                    if seg_node:
-                        loaded_seg_names.add(fname)
-                        # Name without _seg.nii.gz suffix → matches the volume name
-                        vol_name = fname.replace('_seg.nii.gz', '').replace('_seg.nii', '')
-                        seg_node.SetName(f"{vol_name}_seg")
-                        ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
-                        if ref_vol:
-                            seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
-                        # Hide by default; reviewer can isolate/toggle individually
-                        dn = seg_node.GetDisplayNode()
-                        if dn:
-                            dn.SetVisibility(False)
-                        # Track pairs so on_final_save can save each seg to the right volume
-                        if ref_vol:
-                            self.registered_seg_nodes.append((seg_node, ref_vol))
+                    vol_name = fname.replace('_seg.nii.gz', '').replace('_seg.nii', '')
+                    ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
+
+                    lm_node = slicer.util.loadLabelVolume(seg_path)
+                    if not lm_node:
+                        continue
+                    loaded_seg_names.add(fname)
+
+                    seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+                    seg_node.SetName(f"{vol_name}_seg")
+                    if ref_vol:
+                        seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
+                    seg_node.CreateDefaultDisplayNodes()
+                    slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
+                        lm_node, seg_node
+                    )
+                    slicer.mrmlScene.RemoveNode(lm_node)
+
+                    # Hide by default; reviewer can isolate/toggle individually
+                    dn = seg_node.GetDisplayNode()
+                    if dn:
+                        dn.SetVisibility(False)
+
+                    if ref_vol:
+                        self.registered_seg_nodes.append((seg_node, ref_vol))
 
             self.ui.ReviewPanel.setVisible(True)
             self.ui.DiagnosisBox.setVisible(True)
