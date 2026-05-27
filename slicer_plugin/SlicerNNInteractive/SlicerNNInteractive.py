@@ -2300,19 +2300,25 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     def _load_clinical_info(self, patient_id):
         """Look up a patient's row in the clinical CSV and return formatted text.
 
-        Returns an empty string if the CSV is unavailable or the patient is
-        not found. The first matching row is used when duplicates exist.
+        On failure (CSV missing, patient not in CSV, read error) returns a
+        short diagnostic string instead of "" so the user can see what went
+        wrong when they tick the 'Show Patient Info' box.
         """
-        if not patient_id or not self.clinical_csv_path:
-            return ""
+        if not patient_id:
+            return ""  # No scan loaded yet — nothing to look up.
+        if not self.clinical_csv_path:
+            return "Clinical CSV path is not configured."
         if not os.path.exists(self.clinical_csv_path):
-            debug_print(f"Clinical CSV not found: {self.clinical_csv_path}")
-            return ""
+            return f"Clinical CSV not found:\n{self.clinical_csv_path}"
 
         import csv
         try:
             with open(self.clinical_csv_path, "r", newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames or []
+                if "subject" not in fieldnames:
+                    return (f"Clinical CSV has no 'subject' column.\n"
+                            f"Columns: {', '.join(fieldnames)}")
                 for row in reader:
                     if (row.get("subject") or "").strip() == patient_id:
                         lines = [
@@ -2320,9 +2326,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                             for col, label in self.CLINICAL_COLUMNS
                         ]
                         return "\n".join(lines)
+            return f"No clinical info found for patient: {patient_id}"
         except Exception as e:
-            debug_print(f"Error reading clinical CSV: {e}")
-        return ""
+            return f"Error reading clinical CSV: {e}"
 
     def onPatientInfoToggled(self, checked):
         """Show/hide ClinicalInfoLabel based on PatientInfoBox checkbox state."""
