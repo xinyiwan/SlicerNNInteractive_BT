@@ -2093,197 +2093,200 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         return dir_path, patient_ID, exp_id
     
     def loadScans(self):
-        """
-        load chosen scan directory
-        """
-
-        # Choose dir of scans
+        """Load a chosen subject directory and enter fresh or review mode."""
         self.directory = qt.QFileDialog.getExistingDirectory()
-        
         if not self.directory:
             return
-        
-        # Set base dir
+
+        self._set_base_directory()
+        was_showing_seg = self._reset_for_new_subject()
+
+        # Load volumes with the editor widget detached, to suppress VTK warnings
+        # that fire when it tries to auto-pick a source volume mid-load.
+        self.ui.editor_widget.setMRMLScene(None)
+        self._load_image_volumes()
+        self.ui.editor_widget.setMRMLScene(slicer.mrmlScene)
+
+        if self._has_prior_segmentation_history():
+            self._enter_review_mode()
+        else:
+            self._enter_fresh_mode()
+
+        # Scribble node needs the new volume's geometry
+        self.setup_prompts()
+        self.updateInfo()
+
+        if was_showing_seg:
+            # fires onShowSegToggled → updateAISegmentation
+            self.ui.ShowSegCheckBox.setChecked(True)
+
+    # --- loadScans helpers ---
+
+    def _set_base_directory(self):
         try:
-            # for ACQUSITIONS file
+            # base_directory is two levels up from a session folder; used for ACQUISITIONS file
             self.base_directory = os.path.dirname(os.path.dirname(self.directory))
         except Exception:
             print("No base directory defined, please check if choose the session folder!")
-            pass
 
-        # Capture AI seg checkbox state before clearing — the checkbox won't
-        # fire its toggled signal if the state doesn't change, so we retrigger
-        # it manually after loading the new subject.
+    def _reset_for_new_subject(self):
+        """Reset transient state for a new subject. Returns whether AI seg was visible."""
+        # The checkbox's toggled signal won't fire if the state doesn't change,
+        # so capture and restore manually after the load completes.
         was_showing_seg = self.ui.ShowSegCheckBox.isChecked()
         if was_showing_seg:
             self.ui.ShowSegCheckBox.blockSignals(True)
             self.ui.ShowSegCheckBox.setChecked(False)
             self.ui.ShowSegCheckBox.blockSignals(False)
 
-        # Store load timestamp but don't save yet
         self.pending_load_entry = {
             'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
             'filename': None,
             'action': "load",
             'prompt_type': None,
             'is_reset': False,
-            'is_final': False
+            'is_final': False,
         }
-        
-        # Clear existing data
         self.clearLoadedData()
+        return was_showing_seg
 
-        # Disconnect the editor widget from the scene while loading volumes so
-        # that the widget doesn't try to auto-set its source volume before a
-        # segmentation node exists (which produces VTK warnings).
-        self.ui.editor_widget.setMRMLScene(None)
-
-        # Get available sessions (search recursively into subdirectories)
-        sessions = sorted([
-            p
-            for p in Path(self.directory).rglob('*')
+    def _load_image_volumes(self):
+        """Load every image volume under self.directory, skipping seg labelmaps."""
+        sessions = sorted(
+            p for p in Path(self.directory).rglob('*')
             if p.name.endswith('.nii.gz') or p.name.endswith('.nii')
-        ])
-
-        # Load volume and segmentation files
+        )
         for session in sessions:
+            parts = session.parts
+            # segmentation_history/ and review/ hold labelmaps loaded separately
+            if "segmentation_history" in parts or "review" in parts:
+                continue
             session_str = str(session)
-            folder_name = session.parent.name
-            # Skip everything inside segmentation_history — segs are loaded separately
-            if "segmentation_history" in session_str:
+            if 'Localizer' in session_str or 'DYN' in session_str:
                 continue
-            elif 'Localizer' in session_str or 'DYN' in session_str:
+            node = slicer.util.loadVolume(session_str)
+            if node:
+                node.SetName(session.parent.name)
+
+    def _has_prior_segmentation_history(self):
+        """True if segmentation_history/history.json contains any non-load entry."""
+        history_path = os.path.join(self.directory, "segmentation_history", "history.json")
+        if not os.path.exists(history_path):
+            return False
+        try:
+            with open(history_path, 'r') as f:
+                existing = json.load(f)
+            return any(e.get('action') != 'load' for e in existing)
+        except Exception:
+            return False
+
+    def _find_latest_review_with_segs(self):
+        """Return the path to the most recent review/<ts>/ dir whose segs/ is non-empty, or None."""
+        review_root = os.path.join(self.directory, "review")
+        if not os.path.isdir(review_root):
+            return None
+        candidates = sorted(
+            d for d in os.listdir(review_root)
+            if os.path.isdir(os.path.join(review_root, d, "segs"))
+            and any(
+                f.endswith('.nii.gz') or f.endswith('.nii')
+                for f in os.listdir(os.path.join(review_root, d, "segs"))
+            )
+        )
+        return os.path.join(review_root, candidates[-1]) if candidates else None
+
+    def _load_segmentations_from(self, segs_dir):
+        """Load NIfTI labelmaps from segs_dir as segmentation nodes. Returns count loaded."""
+        # Files are plain NIfTI labelmaps (saved via SimpleITK). loadSegmentation on a NIfTI
+        # does not reliably create the binary labelmap representation, which breaks
+        # ExportSegmentsToLabelmapNode later. Load as a LabelMapVolumeNode and import explicitly.
+        self.registered_seg_nodes = []
+        if not os.path.isdir(segs_dir):
+            return 0
+
+        loaded = 0
+        for fname in sorted(os.listdir(segs_dir)):
+            if not (fname.endswith('.nii.gz') or fname.endswith('.nii')):
                 continue
-            else:
-                node = slicer.util.loadVolume(session_str)
-                if node:
-                    node.SetName(folder_name)
+            seg_path = os.path.join(segs_dir, fname)
+            vol_name = fname.replace('_seg.nii.gz', '').replace('_seg.nii', '')
+            ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
 
-        # Reconnect the editor widget to the scene now that volumes are loaded
-        self.ui.editor_widget.setMRMLScene(slicer.mrmlScene)
-        
-        # Check if we're in reviewer mode (has existing segmentation history with real operations)
-        history_dir = os.path.join(self.directory, "segmentation_history")
-        history_path = os.path.join(history_dir, "history.json")
-        has_real_operations = False
-        if os.path.exists(history_path):
-            try:
-                with open(history_path, 'r') as f:
-                    existing_history = json.load(f)
-                has_real_operations = any(e.get('action') != 'load' for e in existing_history)
-            except Exception:
-                pass
+            lm_node = slicer.util.loadLabelVolume(seg_path)
+            if not lm_node:
+                continue
 
-        if has_real_operations:
-            # Create a timestamped review session directory
+            seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
+            seg_node.SetName(f"{vol_name}_seg")
+            if ref_vol:
+                seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
+            seg_node.CreateDefaultDisplayNodes()
+            slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(lm_node, seg_node)
+            slicer.mrmlScene.RemoveNode(lm_node)
+
+            # Hide by default; reviewer can isolate/toggle individually
+            dn = seg_node.GetDisplayNode()
+            if dn:
+                dn.SetVisibility(False)
+
+            if ref_vol:
+                self.registered_seg_nodes.append((seg_node, ref_vol))
+            loaded += 1
+        return loaded
+
+    def _enter_review_mode(self):
+        """Set up the review session dir, load prior segs, show review panels and notice."""
+        prior_review_dir = self._find_latest_review_with_segs()
+        already_reviewed = prior_review_dir is not None
+
+        # Reuse the prior review session if it has finals; otherwise allocate a fresh one.
+        if already_reviewed:
+            self.review_session_dir = prior_review_dir
+            segs_dir = os.path.join(prior_review_dir, "segs")
+        else:
             review_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.review_session_dir = os.path.join(self.directory, "review", review_ts)
             os.makedirs(self.review_session_dir, exist_ok=True)
+            segs_dir = os.path.join(self.directory, "segmentation_history", "segs")
 
-            # Record the load event in the review session history
-            load_entry = {
-                'timestamp': review_ts,
-                'action': "review_load",
-                'notes': "Opened folder for review"
-            }
-            self.save_review_history(load_entry)
+        self.save_review_history({
+            'timestamp': datetime.now().strftime("%Y%m%d_%H%M%S"),
+            'action': "review_load",
+            'notes': "Reopened reviewed subject" if already_reviewed else "Opened folder for review",
+        })
 
-            # Prefer the most recent prior review session's segs/ over the original
-            # segmentation_history/segs/. If a subject has already been reviewed, the
-            # reviewed result supersedes the initial AI segmentation.
-            review_root = os.path.join(self.directory, "review")
-            prior_review_segs_dir = None
-            if os.path.isdir(review_root):
-                prior_sessions = sorted(
-                    d for d in os.listdir(review_root)
-                    if d != os.path.basename(self.review_session_dir)
-                    and os.path.isdir(os.path.join(review_root, d, "segs"))
-                    and any(
-                        f.endswith('.nii.gz') or f.endswith('.nii')
-                        for f in os.listdir(os.path.join(review_root, d, "segs"))
-                    )
-                )
-                if prior_sessions:
-                    prior_review_segs_dir = os.path.join(review_root, prior_sessions[-1], "segs")
+        loaded_count = self._load_segmentations_from(segs_dir)
 
-            already_reviewed = prior_review_segs_dir is not None
-            segs_dir = prior_review_segs_dir if already_reviewed else os.path.join(history_dir, "segs")
-            # Files are plain NIfTI labelmaps (saved via SimpleITK).  loadSegmentation on a
-            # NIfTI does not reliably create the binary labelmap representation, which causes
-            # ExportSegmentsToLabelmapNode to fail later.  Load as a LabelMapVolumeNode and
-            # import explicitly — same approach used by on_final_registration_clicked.
-            loaded_seg_names = set()
-            self.registered_seg_nodes = []
-            if os.path.isdir(segs_dir):
-                for fname in sorted(os.listdir(segs_dir)):
-                    if not (fname.endswith('.nii.gz') or fname.endswith('.nii')):
-                        continue
-                    if fname in loaded_seg_names:
-                        continue
-                    seg_path = os.path.join(segs_dir, fname)
-                    vol_name = fname.replace('_seg.nii.gz', '').replace('_seg.nii', '')
-                    ref_vol = slicer.mrmlScene.GetFirstNodeByName(vol_name)
+        self.ui.ReviewPanel.setVisible(True)
+        self.ui.DiagnosisBox.setVisible(True)
+        self.ui.groupBox_3.setVisible(True)
+        self.ui.ImagingFeaturesButton.setVisible(True)
+        self._restore_notes_from_assessment()
 
-                    lm_node = slicer.util.loadLabelVolume(seg_path)
-                    if not lm_node:
-                        continue
-                    loaded_seg_names.add(fname)
-
-                    seg_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
-                    seg_node.SetName(f"{vol_name}_seg")
-                    if ref_vol:
-                        seg_node.SetReferenceImageGeometryParameterFromVolumeNode(ref_vol)
-                    seg_node.CreateDefaultDisplayNodes()
-                    slicer.modules.segmentations.logic().ImportLabelmapToSegmentationNode(
-                        lm_node, seg_node
-                    )
-                    slicer.mrmlScene.RemoveNode(lm_node)
-
-                    # Hide by default; reviewer can isolate/toggle individually
-                    dn = seg_node.GetDisplayNode()
-                    if dn:
-                        dn.SetVisibility(False)
-
-                    if ref_vol:
-                        self.registered_seg_nodes.append((seg_node, ref_vol))
-
-            self.ui.ReviewPanel.setVisible(True)
-            self.ui.DiagnosisBox.setVisible(True)
-            self.ui.groupBox_3.setVisible(True)
-            self.ui.ImagingFeaturesButton.setVisible(True)
-            self._restore_notes_from_assessment()
-            if already_reviewed:
-                prior_ts = os.path.basename(os.path.dirname(prior_review_segs_dir))
-                slicer.util.infoDisplay(
-                    f"This subject has already been reviewed (session {prior_ts}).\n"
-                    f"Loaded {len(loaded_seg_names)} final segmentation(s) from that review.",
-                    windowTitle="Already Reviewed"
-                )
-            else:
-                slicer.util.infoDisplay(
-                    f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
-                    windowTitle="Review Mode"
-                )
+        if already_reviewed:
+            prior_ts = os.path.basename(prior_review_dir)
+            slicer.util.infoDisplay(
+                f"This subject has already been reviewed (session {prior_ts}).\n"
+                f"Loaded {loaded_count} final segmentation(s) from that review.",
+                windowTitle="Already Reviewed",
+            )
         else:
-            # First-time segmentation (no history, or history only contains load entries)
-            self.review_session_dir = None
-            self.ui.ReviewPanel.setVisible(False)
-            self.ui.DiagnosisBox.setVisible(False)
-            self.ui.groupBox_3.setVisible(False)
-            self.ui.ImagingFeaturesButton.setVisible(False)
-            self.ui.plainTextEdit.setPlainText("")
-            self.segmentation_history = [self.pending_load_entry]
-            self.save_history_file()
-            self.pending_load_entry = None
-        
-        # Re-initialize prompts with the new volume (scribble node needs new geometry)
-        self.setup_prompts()
+            slicer.util.infoDisplay(
+                f"Loaded {loaded_count} segmentation(s) from history for review.",
+                windowTitle="Review Mode",
+            )
 
-        self.updateInfo()
-
-        # Retrigger AI seg if it was showing before load
-        if was_showing_seg:
-            self.ui.ShowSegCheckBox.setChecked(True)  # fires onShowSegToggled → updateAISegmentation
+    def _enter_fresh_mode(self):
+        """No prior history: hide review UI and start a fresh segmentation history."""
+        self.review_session_dir = None
+        self.ui.ReviewPanel.setVisible(False)
+        self.ui.DiagnosisBox.setVisible(False)
+        self.ui.groupBox_3.setVisible(False)
+        self.ui.ImagingFeaturesButton.setVisible(False)
+        self.ui.plainTextEdit.setPlainText("")
+        self.segmentation_history = [self.pending_load_entry]
+        self.save_history_file()
+        self.pending_load_entry = None
 
     def updateInfo(self):
 
