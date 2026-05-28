@@ -1331,6 +1331,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             "Shift+L": self.submit_lasso_if_present,
             "t": self.toggle_prompt_type,  # Add 'T' shortcut to toggle between positive/negative
             "w": self.toggle_paint_erase,
+            "q": self.deactivate_editor_effect,
         }
         self.shortcut_items = {}
 
@@ -1348,6 +1349,10 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         active = editor.activeEffect()
         active_name = active.name if active else ""
         editor.setActiveEffectByName("Erase" if active_name == "Paint" else "Paint")
+
+    def deactivate_editor_effect(self):
+        """Turn off the active Segment Editor effect (return to normal mouse)."""
+        self.ui.editor_widget.setActiveEffectByName("")
 
     def setup_dataparameters(self):
         self.base_directory = None
@@ -2183,12 +2188,30 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             }
             self.save_review_history(load_entry)
 
-            # Load all segmentations from segmentation_history/segs/.
+            # Prefer the most recent prior review session's segs/ over the original
+            # segmentation_history/segs/. If a subject has already been reviewed, the
+            # reviewed result supersedes the initial AI segmentation.
+            review_root = os.path.join(self.directory, "review")
+            prior_review_segs_dir = None
+            if os.path.isdir(review_root):
+                prior_sessions = sorted(
+                    d for d in os.listdir(review_root)
+                    if d != os.path.basename(self.review_session_dir)
+                    and os.path.isdir(os.path.join(review_root, d, "segs"))
+                    and any(
+                        f.endswith('.nii.gz') or f.endswith('.nii')
+                        for f in os.listdir(os.path.join(review_root, d, "segs"))
+                    )
+                )
+                if prior_sessions:
+                    prior_review_segs_dir = os.path.join(review_root, prior_sessions[-1], "segs")
+
+            already_reviewed = prior_review_segs_dir is not None
+            segs_dir = prior_review_segs_dir if already_reviewed else os.path.join(history_dir, "segs")
             # Files are plain NIfTI labelmaps (saved via SimpleITK).  loadSegmentation on a
             # NIfTI does not reliably create the binary labelmap representation, which causes
             # ExportSegmentsToLabelmapNode to fail later.  Load as a LabelMapVolumeNode and
             # import explicitly — same approach used by on_final_registration_clicked.
-            segs_dir = os.path.join(history_dir, "segs")
             loaded_seg_names = set()
             self.registered_seg_nodes = []
             if os.path.isdir(segs_dir):
@@ -2229,10 +2252,18 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.ui.groupBox_3.setVisible(True)
             self.ui.ImagingFeaturesButton.setVisible(True)
             self._restore_notes_from_assessment()
-            slicer.util.infoDisplay(
-                f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
-                windowTitle="Review Mode"
-            )
+            if already_reviewed:
+                prior_ts = os.path.basename(os.path.dirname(prior_review_segs_dir))
+                slicer.util.infoDisplay(
+                    f"This subject has already been reviewed (session {prior_ts}).\n"
+                    f"Loaded {len(loaded_seg_names)} final segmentation(s) from that review.",
+                    windowTitle="Already Reviewed"
+                )
+            else:
+                slicer.util.infoDisplay(
+                    f"Loaded {len(loaded_seg_names)} segmentation(s) from history for review.",
+                    windowTitle="Review Mode"
+                )
         else:
             # First-time segmentation (no history, or history only contains load entries)
             self.review_session_dir = None
