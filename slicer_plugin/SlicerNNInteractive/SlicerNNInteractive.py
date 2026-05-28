@@ -149,6 +149,16 @@ class ImagingFeaturesDialog(qt.QDialog):
         "Absence / unknown",
     ]
 
+    TUMOR_MATRIX_MRI_OPTIONS = [
+        "Viable tissue",
+        "Fluid",
+        "Cartilaginous",
+        "Fibrous",
+        "Vascular",
+        "Fatty",
+        "Mixoid",
+    ]
+
     # Ordered list of (key, label, kind, options-or-None).
     @classmethod
     def _questions(cls):
@@ -156,8 +166,9 @@ class ImagingFeaturesDialog(qt.QDialog):
             ("on_flat_bone", "On flat bone", cls.YES_NO, None),
             ("body_wall", "Body wall", cls.YES_NO, None),
             ("longitudinal_location", "Longitudinal location", cls.SINGLE, cls.LONGITUDINAL_OPTIONS),
-            ("subperiosteal_location", "Subperiosteal location (select all that apply)", cls.MULTI, cls.SUBPERIOSTEAL_OPTIONS),
-            ("tumor_shape", "Tumor shape (select all that apply)", cls.MULTI, cls.TUMOR_SHAPE_OPTIONS),
+            ("subperiosteal_location", "Subperiosteal location", cls.SINGLE, cls.SUBPERIOSTEAL_OPTIONS),
+            ("tumor_shape", "Tumor shape", cls.SINGLE, cls.TUMOR_SHAPE_OPTIONS),
+            ("tumor_matrix_mri", "Tumor matrix on MRI (select all that apply)", cls.MULTI, cls.TUMOR_MATRIX_MRI_OPTIONS),
             ("fibrous_matrix", "Fibrous matrix", cls.YES_NO, None),
             ("fluid_without_fluid_fluid_level", "Fluid - without fluid-fluid level", cls.YES_NO, None),
             ("mri_contrast_enhancement", "MRI contrast enhancement", cls.SINGLE, cls.MRI_ENHANCEMENT_OPTIONS),
