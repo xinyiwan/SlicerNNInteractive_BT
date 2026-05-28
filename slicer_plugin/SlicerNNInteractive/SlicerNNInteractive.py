@@ -1330,6 +1330,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             "r": self.clear_current_segment,
             "Shift+L": self.submit_lasso_if_present,
             "t": self.toggle_prompt_type,  # Add 'T' shortcut to toggle between positive/negative
+            "w": self.toggle_paint_erase,
         }
         self.shortcut_items = {}
 
@@ -1340,6 +1341,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             )
             shortcut.activated.connect(shortcut_event)
             self.shortcut_items[shortcut_key] = shortcut
+
+    def toggle_paint_erase(self):
+        """Toggle the Segment Editor between the Paint and Erase effects."""
+        editor = self.ui.editor_widget
+        active = editor.activeEffect()
+        active_name = active.name if active else ""
+        editor.setActiveEffectByName("Erase" if active_name == "Paint" else "Paint")
 
     def setup_dataparameters(self):
         self.base_directory = None
