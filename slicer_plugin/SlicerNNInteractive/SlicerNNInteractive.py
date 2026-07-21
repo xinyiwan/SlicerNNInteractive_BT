@@ -497,7 +497,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
 
         # Restore saved seg directory (fall back to the default project path)
-        _default_seg_dir = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_totalseg")
+        _default_seg_dir = os.path.normpath("Z:/mnt/rimp/PROJECTS/BONE-AI/tmp_data_totalseg")
         # savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
         # if savedSegDir and os.path.exists(savedSegDir):
         self.seg_directory = _default_seg_dir
