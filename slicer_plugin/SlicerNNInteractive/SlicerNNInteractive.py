@@ -167,7 +167,7 @@ class ImagingFeaturesDialog(qt.QDialog):
             ("body_wall", "Body wall", cls.YES_NO, None),
             ("longitudinal_location", "Longitudinal location", cls.SINGLE, cls.LONGITUDINAL_OPTIONS),
             ("subperiosteal_location", "Subperiosteal location", cls.SINGLE, cls.SUBPERIOSTEAL_OPTIONS),
-            ("tumor_shape", "Tumor shape", cls.SINGLE, cls.TUMOR_SHAPE_OPTIONS),
+            ("tumor_shape", "Tumor shape", cls.MULTI, cls.TUMOR_SHAPE_OPTIONS),
             ("tumor_matrix_mri", "Tumor matrix on MRI (select all that apply)", cls.MULTI, cls.TUMOR_MATRIX_MRI_OPTIONS),
             ("fibrous_matrix", "Fibrous matrix", cls.YES_NO, None),
             ("fluid_without_fluid_fluid_level", "Fluid - without fluid-fluid level", cls.YES_NO, None),
