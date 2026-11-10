@@ -472,6 +472,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
 
         # added connection for choosing scans
         self.ui.LoadScanButton.clicked.connect(self.loadScans)
+        self.setup_data_selector()
 
         # PatientInfoBox checkbox shows/hides ClinicalInfoLabel
         self.ui.ClinicalInfoLabel.setVisible(False)
@@ -500,7 +501,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         _default_seg_dir = os.path.normpath("/home/xwan/BT_subset_20pct")
         # savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
         # if savedSegDir and os.path.exists(savedSegDir):
-        self.seg_directory = _default_seg_dir
+        self.seg_directory = self.seg_directory or _default_seg_dir
 
         # Observe active volume changes to auto-update AI seg
         self.addObserver(
@@ -2105,9 +2106,14 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
     
     def loadScans(self):
         """Load a chosen subject directory and enter fresh or review mode."""
-        self.directory = qt.QFileDialog.getExistingDirectory()
-        if not self.directory:
+        directory = qt.QFileDialog.getExistingDirectory()
+        if not directory:
             return
+        self._load_scans_from_directory(directory)
+
+    def _load_scans_from_directory(self, directory):
+        """Load a session folder (<root>/<subject>/<study>); shared by the dialog and the subject list."""
+        self.directory = directory
 
         self._set_base_directory()
         was_showing_seg = self._reset_for_new_subject()
@@ -2130,6 +2136,192 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         if was_showing_seg:
             # fires onShowSegToggled → updateAISegmentation
             self.ui.ShowSegCheckBox.setChecked(True)
+
+    ###############################################################################
+    # Data paths + subject selector (optional; "Load scans" button still works)
+    ###############################################################################
+
+    SETTINGS_PREFIX = "SlicerNNInteractive/"
+
+    def setup_data_selector(self):
+        """Collapsible 'Data paths & subject' section placed above the scan controls."""
+        import ctk
+
+        s = qt.QSettings()
+        pre = self.SETTINGS_PREFIX
+        box = ctk.ctkCollapsibleButton()
+        box.text = "Data paths && subject"
+        box.collapsed = False
+        lay = qt.QVBoxLayout(box)
+
+        form = qt.QFormLayout()
+        self.dataRootEdit = self._path_row(form, "Data root", "dataRoot", s.value(pre + "dataRoot") or "", directory=True)
+        self.extraRootsList = qt.QListWidget()
+        self.extraRootsList.setMaximumHeight(60)
+        self.extraRootsList.setToolTip("Optional additional data roots; subjects from all roots are listed together")
+        for r in (s.value(pre + "dataRootsExtra") or "").split("|"):
+            if r:
+                self.extraRootsList.addItem(r)
+        form.addRow("Extra roots", self.extraRootsList)
+        rootBtns = qt.QHBoxLayout()
+        addRoot = qt.QPushButton("Add extra root...")
+        addRoot.clicked.connect(self.on_add_extra_root)
+        rmRoot = qt.QPushButton("Remove selected")
+        rmRoot.clicked.connect(self.on_remove_extra_root)
+        rootBtns.addWidget(addRoot)
+        rootBtns.addWidget(rmRoot)
+        form.addRow(rootBtns)
+        saved_csv = s.value(pre + "clinicalCsv")
+        if saved_csv:
+            self.clinical_csv_path = saved_csv
+        saved_seg = s.value(pre + "segDir")
+        if saved_seg:
+            self.seg_directory = saved_seg
+        self.clinicalCsvEdit = self._path_row(form, "Clinical CSV", "clinicalCsv", self.clinical_csv_path or "", directory=False)
+        self.segDirEdit = self._path_row(form, "TotalSeg dir", "segDir", self.seg_directory or "", directory=True)
+        lay.addLayout(form)
+        applyBtn = qt.QPushButton("Apply paths / rescan")
+        applyBtn.clicked.connect(self.on_apply_paths)
+        lay.addWidget(applyBtn)
+
+        self.subjectSearch = qt.QLineEdit()
+        self.subjectSearch.setPlaceholderText("Search subject ...")
+        self.subjectSearch.setClearButtonEnabled(True)
+        self.subjectSearch.textChanged.connect(self.populate_subject_list)
+        lay.addWidget(self.subjectSearch)
+        self.subjectList = qt.QListWidget()
+        self.subjectList.setMinimumHeight(110)
+        self.subjectList.currentItemChanged.connect(self.on_subject_selected)
+        self.subjectList.itemDoubleClicked.connect(lambda _i: self.on_load_selected_subject())
+        lay.addWidget(self.subjectList)
+        self.studyCombo = qt.QComboBox()
+        lay.addWidget(self.studyCombo)
+        self.subjectCountLabel = qt.QLabel("")
+        lay.addWidget(self.subjectCountLabel)
+        loadBtn = qt.QPushButton("Load selected subject / study")
+        loadBtn.clicked.connect(self.on_load_selected_subject)
+        lay.addWidget(loadBtn)
+
+        # insert just above the scan controls, keeping everything else where it was
+        parent_layout = self.ui.gridGroupBox.parent().layout()
+        idx = parent_layout.indexOf(self.ui.gridGroupBox)
+        parent_layout.insertWidget(idx if idx >= 0 else 0, box)
+
+        self._subject_roots = {}  # subject -> root folder
+        self.populate_subject_list()
+
+    def _path_row(self, form, label, key, default, directory):
+        edit = qt.QLineEdit(default)
+        btn = qt.QPushButton("...")
+        btn.setMaximumWidth(30)
+
+        def browse():
+            if directory:
+                p = qt.QFileDialog.getExistingDirectory(None, label, edit.text)
+            else:
+                p = qt.QFileDialog.getOpenFileName(None, label, edit.text, "CSV (*.csv)")
+            if p:
+                edit.setText(p)
+                self.on_apply_paths()
+
+        btn.clicked.connect(browse)
+        edit.editingFinished.connect(self.on_apply_paths)
+        row = qt.QHBoxLayout()
+        row.addWidget(edit)
+        row.addWidget(btn)
+        form.addRow(label, row)
+        return edit
+
+    def _extra_roots(self):
+        return [self.extraRootsList.item(i).text() for i in range(self.extraRootsList.count)]
+
+    def on_add_extra_root(self):
+        p = qt.QFileDialog.getExistingDirectory(None, "Add data root", self.dataRootEdit.text)
+        if p and p not in self._extra_roots() and p != self.dataRootEdit.text:
+            self.extraRootsList.addItem(p)
+            self.on_apply_paths()
+
+    def on_remove_extra_root(self):
+        row = self.extraRootsList.currentRow
+        if row >= 0:
+            self.extraRootsList.takeItem(row)
+            self.on_apply_paths()
+
+    def on_apply_paths(self, *_):
+        """Store the paths, point the existing CSV / TotalSeg logic at them and rescan the roots."""
+        s = qt.QSettings()
+        pre = self.SETTINGS_PREFIX
+        s.setValue(pre + "dataRoot", self.dataRootEdit.text)
+        s.setValue(pre + "dataRootsExtra", "|".join(self._extra_roots()))
+        s.setValue(pre + "clinicalCsv", self.clinicalCsvEdit.text)
+        s.setValue(pre + "segDir", self.segDirEdit.text)
+        if self.clinicalCsvEdit.text:
+            self.clinical_csv_path = os.path.normpath(self.clinicalCsvEdit.text)
+        if self.segDirEdit.text:
+            self.seg_directory = os.path.normpath(self.segDirEdit.text)
+        self.populate_subject_list()
+        if self.directory:  # refresh clinical info of the loaded subject
+            self.updateInfo()
+
+    @staticmethod
+    def _natural_key(text):
+        import re
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
+
+    def populate_subject_list(self, *_):
+        roots = [r for r in [self.dataRootEdit.text] + self._extra_roots() if r]
+        found = {}
+        for root in reversed(roots):  # earlier roots win on duplicates
+            try:
+                for d in os.listdir(root):
+                    if os.path.isdir(os.path.join(root, d)):
+                        found[d] = root
+            except OSError:
+                pass
+        self._subject_roots = found
+        query = self.subjectSearch.text.strip().lower().replace(" ", "")
+        self.subjectList.blockSignals(True)
+        self.subjectList.clear()
+        n = 0
+        for code in sorted(found, key=self._natural_key):
+            if query and query not in code.lower():
+                continue
+            tag = "   [%s]" % os.path.basename(found[code].rstrip("/\\")) if len(roots) > 1 else ""
+            item = qt.QListWidgetItem(code + tag)
+            item.setData(qt.Qt.UserRole, code)
+            self.subjectList.addItem(item)
+            n += 1
+        self.subjectList.blockSignals(False)
+        self.subjectCountLabel.setText(f"{n} shown | {len(found)} subjects found")
+        if n:
+            self.subjectList.setCurrentRow(0)
+        else:
+            self.on_subject_selected(None, None)
+
+    def on_subject_selected(self, current, _previous):
+        self.studyCombo.clear()
+        if not current:
+            return
+        code = current.data(qt.Qt.UserRole)
+        root = self._subject_roots.get(code)
+        if not root:
+            return
+        path = os.path.join(root, code)
+        try:
+            for d in sorted(os.listdir(path)):
+                if os.path.isdir(os.path.join(path, d)):
+                    self.studyCombo.addItem(d)
+        except OSError:
+            pass
+
+    def on_load_selected_subject(self):
+        item = self.subjectList.currentItem()
+        study = self.studyCombo.currentText
+        if not item or not study:
+            slicer.util.warningDisplay("Select a subject and a study first.")
+            return
+        code = item.data(qt.Qt.UserRole)
+        self._load_scans_from_directory(os.path.join(self._subject_roots[code], code, study))
 
     # --- loadScans helpers ---
 
@@ -2371,11 +2563,12 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             with open(self.clinical_csv_path, "r", newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 fieldnames = reader.fieldnames or []
-                if "subject" not in fieldnames:
+                id_col = next((c for c in ("subject", "subject_code") if c in fieldnames), None)
+                if id_col is None:
                     return (f"Clinical CSV has no 'subject' column.\n"
                             f"Columns: {', '.join(fieldnames)}")
                 for row in reader:
-                    if (row.get("subject") or "").strip() == patient_id:
+                    if (row.get(id_col) or "").strip() == patient_id:
                         lines = [
                             f"{label}: {self._format_clinical_value(col, row.get(col, ''))}"
                             for col, label in self.CLINICAL_COLUMNS
