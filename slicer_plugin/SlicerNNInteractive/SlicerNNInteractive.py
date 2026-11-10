@@ -338,9 +338,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.directory = None  # Will be set when directory is chosen (session, MR-xxx)
         self.base_directory = None  # Set after directory is set (go to the folder level of all subs)
         self._undo_redo_connected = False
-        self.seg_directory = os.path.normpath("Z:/home/ext_xinwan/Bone_AI/tmp_data_seg")
+        self.seg_directory = os.path.normpath("/home/xwan/BT_subset_20pct")
         self.clinical_csv_path = os.path.normpath(
-            "Z:/home/ext_xinwan/Bone_AI/output/clinical_info/combined_clinical_info.csv"
+            "/home/xwan/BT_subset_20pct/combined_clinical_info_batches1_to_4.csv"
         )
         self.ai_seg_node = None
         self._last_volume_id = None
@@ -359,7 +359,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         ScriptedLoadableModuleWidget.setup(self)
 
         self.install_dependencies()
-        safe_path = "Z:/home/ext_xinwan/SlicerNNInteractive_BT/slicer_plugin/SlicerNNInteractive/Resources/UI/SlicerNNInteractive.ui"
+        safe_path = "/home/xwan/Documents/github/SlicerNNInteractive_BT/slicer_plugin/SlicerNNInteractive/Resources/UI/SlicerNNInteractive.ui"
         if os.path.exists(safe_path):
             print(f"File exists at safe_path")
         ui_widget = slicer.util.loadUI(safe_path)
@@ -497,7 +497,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         self.ui.ShowSegCheckBox.toggled.connect(self.onShowSegToggled)
 
         # Restore saved seg directory (fall back to the default project path)
-        _default_seg_dir = os.path.normpath("Z:/mnt/rimp/PROJECTS/BONE-AI/tmp_data_totalseg")
+        _default_seg_dir = os.path.normpath("/home/xwan/BT_subset_20pct")
         # savedSegDir = slicer.util.settingsValue("SlicerNNInteractive/seg_directory", _default_seg_dir)
         # if savedSegDir and os.path.exists(savedSegDir):
         self.seg_directory = _default_seg_dir
