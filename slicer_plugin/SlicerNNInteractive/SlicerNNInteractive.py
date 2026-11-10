@@ -2289,6 +2289,34 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             slicer.util.warningDisplay(f"Cannot read subset CSV: {e}")
             return None
 
+    @staticmethod
+    def _study_has_seg(study_path):
+        """True if the study folder already holds saved segmentations (history segs or a review's segs)."""
+        def has_files(d):
+            try:
+                return any(os.path.isfile(os.path.join(d, f)) for f in os.listdir(d))
+            except OSError:
+                return False
+
+        if has_files(os.path.join(study_path, "segmentation_history", "segs")):
+            return True
+        review = os.path.join(study_path, "review")
+        try:
+            return any(has_files(os.path.join(review, r, "segs")) for r in os.listdir(review))
+        except OSError:
+            return False
+
+    def _subject_has_seg(self, code):
+        root = self._subject_roots.get(code)
+        if not root:
+            return False
+        base = os.path.join(root, code)
+        try:
+            return any(self._study_has_seg(os.path.join(base, d)) for d in os.listdir(base)
+                       if os.path.isdir(os.path.join(base, d)))
+        except OSError:
+            return False
+
     def populate_subject_list(self, *_):
         roots = [r for r in [self.dataRootEdit.text] + self._extra_roots() if r]
         found = {}
@@ -2303,6 +2331,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         if subset is not None:
             found = {k: v for k, v in found.items() if k in subset}
         self._subject_roots = found
+        seg_flags = {c: self._subject_has_seg(c) for c in found}  # scan the disk once per rescan
         query = self.subjectSearch.text.strip().lower().replace(" ", "")
         self.subjectList.blockSignals(True)
         self.subjectList.clear()
@@ -2310,13 +2339,20 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         for code in sorted(found, key=self._natural_key):
             if query and query not in code.lower():
                 continue
-            tag = "   [%s]" % os.path.basename(found[code].rstrip("/\\")) if len(roots) > 1 else ""
-            item = qt.QListWidgetItem(code + tag)
+            tags = []
+            if seg_flags[code]:
+                tags.append("seg")
+            if len(roots) > 1:
+                tags.append(os.path.basename(found[code].rstrip("/\\")))
+            item = qt.QListWidgetItem(code + ("   [%s]" % ", ".join(tags) if tags else ""))
+            if tags and tags[0] == "seg":
+                item.setForeground(qt.QBrush(qt.QColor("#2e8b57")))
             item.setData(qt.Qt.UserRole, code)
             self.subjectList.addItem(item)
             n += 1
         self.subjectList.blockSignals(False)
-        self.subjectCountLabel.setText(f"{n} shown | {len(found)} subjects found")
+        n_seg = sum(seg_flags.values())
+        self.subjectCountLabel.setText(f"{n} shown | {len(found)} subjects found | {n_seg} with segmentation")
         if n:
             self.subjectList.setCurrentRow(0)
         else:
@@ -2334,13 +2370,13 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         try:
             for d in sorted(os.listdir(path)):
                 if os.path.isdir(os.path.join(path, d)):
-                    self.studyCombo.addItem(d)
+                    self.studyCombo.addItem(d + ("   [seg]" if self._study_has_seg(os.path.join(path, d)) else ""), d)
         except OSError:
             pass
 
     def on_load_selected_subject(self):
         item = self.subjectList.currentItem()
-        study = self.studyCombo.currentText
+        study = self.studyCombo.currentData
         if not item or not study:
             slicer.util.warningDisplay("Select a subject and a study first.")
             return
