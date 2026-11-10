@@ -2179,6 +2179,8 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
             self.seg_directory = saved_seg
         self.clinicalCsvEdit = self._path_row(form, "Clinical CSV", "clinicalCsv", self.clinical_csv_path or "", directory=False)
         self.segDirEdit = self._path_row(form, "TotalSeg dir", "segDir", self.seg_directory or "", directory=True)
+        self.subsetCsvEdit = self._path_row(form, "Subset CSV", "subsetCsv", s.value(pre + "subsetCsv") or "", directory=False)
+        self.subsetCsvEdit.setToolTip("Optional: only list subjects in this CSV (column subject_code or subject)")
         lay.addLayout(form)
         applyBtn = qt.QPushButton("Apply paths / rescan")
         applyBtn.clicked.connect(self.on_apply_paths)
@@ -2255,6 +2257,7 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         s.setValue(pre + "dataRootsExtra", "|".join(self._extra_roots()))
         s.setValue(pre + "clinicalCsv", self.clinicalCsvEdit.text)
         s.setValue(pre + "segDir", self.segDirEdit.text)
+        s.setValue(pre + "subsetCsv", self.subsetCsvEdit.text)
         if self.clinicalCsvEdit.text:
             self.clinical_csv_path = os.path.normpath(self.clinicalCsvEdit.text)
         if self.segDirEdit.text:
@@ -2268,6 +2271,24 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
         import re
         return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
 
+    def _load_subset_subjects(self):
+        """Subject codes from the Subset CSV, or None when no (readable) CSV is set."""
+        path = self.subsetCsvEdit.text.strip()
+        if not path:
+            return None
+        import csv
+        try:
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                r = csv.DictReader(f)
+                col = next((c for c in ("subject_code", "subject") if c in (r.fieldnames or [])), None)
+                if col is None:
+                    slicer.util.warningDisplay("Subset CSV needs a 'subject_code' or 'subject' column.")
+                    return None
+                return {(row[col] or "").strip() for row in r}
+        except OSError as e:
+            slicer.util.warningDisplay(f"Cannot read subset CSV: {e}")
+            return None
+
     def populate_subject_list(self, *_):
         roots = [r for r in [self.dataRootEdit.text] + self._extra_roots() if r]
         found = {}
@@ -2278,6 +2299,9 @@ class SlicerNNInteractiveWidget(ScriptedLoadableModuleWidget, VTKObservationMixi
                         found[d] = root
             except OSError:
                 pass
+        subset = self._load_subset_subjects()
+        if subset is not None:
+            found = {k: v for k, v in found.items() if k in subset}
         self._subject_roots = found
         query = self.subjectSearch.text.strip().lower().replace(" ", "")
         self.subjectList.blockSignals(True)
